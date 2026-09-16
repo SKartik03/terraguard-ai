@@ -198,3 +198,27 @@ def test_system_status_endpoint():
     assert data["status"] == "Operational"
     assert data["database"]["engine"] == "SQLite 3"
     assert data["machine_learning"]["active"] is True
+
+def test_live_weather_assessment():
+    """Verify real-time Open-Meteo assessment parameter ingestion."""
+    response = client.get("/api/live-weather-assessment?lat=11.5540&lon=76.0422")
+    assert response.status_code == 200
+    data = response.json()
+    assert "rainfall_mm" in data
+    assert "soil_moisture_pct" in data
+    assert 0.0 <= data["rainfall_mm"] <= 500.0
+    assert 0.0 <= data["soil_moisture_pct"] <= 100.0
+    assert "source" in data
+
+def test_live_corridor_monitoring():
+    """Verify live real-time monitoring across the 6 hazard corridors."""
+    response = client.get("/api/live-corridor-monitoring")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["monitored_corridors_count"] == 6
+    for corr in data["corridors"]:
+        assert "live_weather" in corr
+        assert "live_calculated_risk" in corr
+        assert "score" in corr["live_calculated_risk"]
+        assert corr["live_calculated_risk"]["risk_class"] in ["LOW", "MODERATE", "HIGH", "CRITICAL"]
+

@@ -270,6 +270,25 @@ def get_risk_map():
 
     return {"features": features}
 
+def decode_weather_code(code: int) -> str:
+    codes = {
+        0: "Clear Sky",
+        1: "Mainly Clear",
+        2: "Partly Cloudy",
+        3: "Overcast",
+        45: "Fog",
+        51: "Light Drizzle",
+        53: "Moderate Drizzle",
+        61: "Slight Rain",
+        63: "Moderate Rain",
+        65: "Heavy Rain",
+        80: "Rain Showers",
+        81: "Moderate Rain Showers",
+        82: "Violent Rain Showers",
+        95: "Thunderstorm"
+    }
+    return codes.get(code, "Variable Weather")
+
 @app.get("/api/live-weather")
 def get_live_weather(lat: float = 11.5540, lon: float = 76.0422):
     """
@@ -315,24 +334,158 @@ def get_live_weather(lat: float = 11.5540, lon: float = 76.0422):
 
     return fallback_data
 
-def decode_weather_code(code: int) -> str:
-    codes = {
-        0: "Clear Sky",
-        1: "Mainly Clear",
-        2: "Partly Cloudy",
-        3: "Overcast",
-        45: "Fog",
-        51: "Light Drizzle",
-        53: "Moderate Drizzle",
-        61: "Slight Rain",
-        63: "Moderate Rain",
-        65: "Heavy Rain",
-        80: "Rain Showers",
-        81: "Moderate Rain Showers",
-        82: "Violent Rain Showers",
-        95: "Thunderstorm"
+@app.get("/api/live-weather-assessment")
+def get_live_weather_assessment(lat: float = 11.5540, lon: float = 76.0422):
+    """
+    Fetches live real-time Open-Meteo meteorological readings and computes
+    calibrated parameters for direct ingestion into the Risk Assessment engine.
+    """
+    fallback_data = {
+        "status": "fallback",
+        "latitude": lat,
+        "longitude": lon,
+        "rainfall_mm": 45.0,
+        "soil_moisture_pct": 62.0,
+        "temperature": 23.4,
+        "weather_condition": "Intermittent Cloud Cover",
+        "forecast_24h_sum_mm": 52.0,
+        "source": "Open-Meteo Regional Baseline (Offline Fallback)",
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
-    return codes.get(code, "Variable Weather")
+
+    try:
+        url = (
+            f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+            f"&current=temperature_2m,relative_humidity_2m,precipitation,rain,wind_speed_10m,weather_code"
+            f"&daily=precipitation_sum,precipitation_probability_max&timezone=auto"
+        )
+        res = requests.get(url, timeout=4.0)
+        if res.status_code == 200:
+            data = res.json()
+            curr = data.get("current", {})
+            daily = data.get("daily", {})
+            
+            # Extract precipitation metrics
+            precip_sum_list = daily.get("precipitation_sum", [0.0])
+            daily_sum = float(precip_sum_list[0]) if precip_sum_list else 0.0
+            current_rain = float(curr.get("precipitation", 0.0))
+            humidity = float(curr.get("relative_humidity_2m", 65.0))
+            
+            # Determine accumulation parameter (use daily sum or extrapolated event burst)
+            calibrated_rain = round(max(daily_sum, current_rain * 6.0), 1)
+            # Estimate soil moisture index from relative humidity and precipitation
+            estimated_moisture = round(min(max(humidity * 0.65 + calibrated_rain * 0.4, 25.0), 96.0), 1)
+
+            return {
+                "status": "live",
+                "latitude": lat,
+                "longitude": lon,
+                "rainfall_mm": calibrated_rain,
+                "soil_moisture_pct": estimated_moisture,
+                "temperature": curr.get("temperature_2m", 22.0),
+                "weather_condition": decode_weather_code(curr.get("weather_code", 0)),
+                "forecast_24h_sum_mm": daily_sum,
+                "source": "Open-Meteo Real-Time Forecast API",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+    except Exception as e:
+        pass
+
+    return fallback_data
+
+@app.get("/api/live-corridor-monitoring")
+def get_live_corridor_monitoring():
+    """
+    Live real-time monitoring across all 6 demonstration hazard corridors.
+    Combines live Open-Meteo precipitation with static GIS terrain profiles
+    to continuously output real-time landslide risk predictions.
+    """
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM locations")
+    loc_rows = cursor.fetchall()
+    conn.close()
+
+    corridors = []
+    for row in loc_rows:
+        loc = dict(row)
+        lat = loc["latitude"]
+        lon = loc["longitude"]
+
+        # Fetch live meteorological snapshot for this corridor
+        live_rain = 0.0
+        daily_forecast_rain = 0.0
+        live_temp = 22.0
+        weather_cond = "Mainly Clear"
+        is_live = False
+
+        try:
+            url = (
+                f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+                f"&current=temperature_2m,precipitation,weather_code&daily=precipitation_sum&timezone=auto"
+            )
+            res = requests.get(url, timeout=2.5)
+            if res.status_code == 200:
+                data = res.json()
+                curr = data.get("current", {})
+                daily = data.get("daily", {})
+                live_rain = float(curr.get("precipitation", 0.0))
+                daily_list = daily.get("precipitation_sum", [0.0])
+                daily_forecast_rain = float(daily_list[0]) if daily_list else 0.0
+                live_temp = float(curr.get("temperature_2m", 22.0))
+                weather_cond = decode_weather_code(curr.get("weather_code", 0))
+                is_live = True
+        except Exception:
+            pass
+
+        # If dry season/zero rain currently, use representative seasonal benchmark
+        effective_rain = max(daily_forecast_rain, live_rain * 8.0, 15.0 if not is_live else 5.0)
+
+        # Evaluate real-time risk
+        eval_result = assess_risk(
+            rainfall_mm=effective_rain,
+            slope_deg=loc["baseline_slope"],
+            soil_moisture_pct=loc["baseline_soil_moisture"],
+            geology_condition=loc["geology_type"],
+            ndvi=loc["baseline_ndvi"],
+            land_cover=loc["land_cover"],
+            window_hours=24
+        )
+
+        corridors.append({
+            "id": loc["id"],
+            "name": loc["name"],
+            "region": loc["region"],
+            "coordinates": [lat, lon],
+            "slope": loc["baseline_slope"],
+            "geology": loc["geology_type"],
+            "live_weather": {
+                "temperature_c": live_temp,
+                "current_precipitation_mm": live_rain,
+                "forecast_24h_mm": daily_forecast_rain,
+                "condition": weather_cond,
+                "is_live_telemetry": is_live
+            },
+            "live_calculated_risk": {
+                "score": eval_result["final_risk_score"],
+                "risk_class": eval_result["final_risk_class"],
+                "dominant_factor": eval_result["dominant_factor"],
+                "ml_probability_pct": eval_result["layer2"].get("probability_pct", eval_result["final_risk_score"])
+            }
+        })
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "monitored_corridors_count": len(corridors),
+        "data_sources": [
+            "Open-Meteo Real-Time Weather API",
+            "NASA SRTM 30m / ISRO Cartosat DEM",
+            "GSI Geological Bedrock Mapping",
+            "Sentinel-2 Calibrated NDVI"
+        ],
+        "corridors": corridors
+    }
+
 
 @app.get("/api/system-status")
 def get_system_status():

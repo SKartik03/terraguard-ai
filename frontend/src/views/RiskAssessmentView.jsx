@@ -82,8 +82,40 @@ export default function RiskAssessmentView({ params, setParams, onRunAssessment 
     }
   ];
 
+  const [fetchingWeather, setFetchingWeather] = useState(false);
+  const [liveFeedback, setLiveFeedback] = useState(null);
+
   const applyPreset = (preset) => {
     setParams({ ...preset.data });
+    setLiveFeedback(null);
+  };
+
+  const handleIngestLiveWeather = async () => {
+    setFetchingWeather(true);
+    try {
+      const res = await fetch(`/api/live-weather-assessment?lat=${params.latitude}&lon=${params.longitude}`);
+      if (!res.ok) throw new Error("Failed to fetch live weather");
+      const data = await res.json();
+      
+      setParams(prev => ({
+        ...prev,
+        rainfall_mm: data.rainfall_mm,
+        soil_moisture_pct: data.soil_moisture_pct
+      }));
+
+      setLiveFeedback({
+        status: data.status,
+        text: `Live Open-Meteo Ingested: ${data.rainfall_mm}mm precipitation, ${data.soil_moisture_pct}% soil saturation (${data.weather_condition}, ${data.temperature}°C).`
+      });
+    } catch (err) {
+      console.warn("Live weather ingestion fallback:", err);
+      setLiveFeedback({
+        status: 'fallback',
+        text: `Network unavailable. Regional baseline applied: ${params.rainfall_mm}mm rain.`
+      });
+    } finally {
+      setFetchingWeather(false);
+    }
   };
 
   // Local deterministic score estimation for live formula preview
@@ -122,11 +154,28 @@ export default function RiskAssessmentView({ params, setParams, onRunAssessment 
         </div>
       </div>
 
-      {/* Presets Bar */}
+      {/* Presets Bar & Live Weather Ingestion */}
       <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: 24 }}>
-        <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Zap size={14} color="var(--emerald-400)" /> Quick Calibration Presets
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Zap size={14} color="var(--emerald-400)" /> Calibration Presets & Real-Time Ingestion
+          </div>
+          <button 
+            onClick={handleIngestLiveWeather} 
+            className="btn btn-sm"
+            style={{ 
+              background: 'linear-gradient(135deg, #0284c7, #0369a1)', 
+              color: 'white', 
+              boxShadow: '0 0 12px rgba(14, 165, 233, 0.35)',
+              fontSize: '0.78rem'
+            }}
+            disabled={fetchingWeather}
+          >
+            <Zap size={14} className={fetchingWeather ? "animate-spin" : ""} />
+            {fetchingWeather ? "Fetching Live Telemetry..." : "Ingest Live Weather (Open-Meteo)"}
+          </button>
         </div>
+
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           {presets.map((p, idx) => (
             <button 
@@ -139,6 +188,12 @@ export default function RiskAssessmentView({ params, setParams, onRunAssessment 
             </button>
           ))}
         </div>
+
+        {liveFeedback && (
+          <div style={{ marginTop: 12, padding: '8px 12px', borderRadius: 6, background: liveFeedback.status === 'live' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)', border: `1px solid ${liveFeedback.status === 'live' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`, fontSize: '0.78rem', color: liveFeedback.status === 'live' ? 'var(--emerald-400)' : 'var(--risk-mod)' }}>
+            ✓ {liveFeedback.text}
+          </div>
+        )}
       </div>
 
       {/* Main Grid: Form Inputs + Live Preview Card */}

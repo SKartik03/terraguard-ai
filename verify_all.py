@@ -48,7 +48,21 @@ def test_backend_endpoints():
     w_data = res.json()
     print(f"[PASS] GET /api/live-weather -> Temp: {w_data['temperature']}°C, Precip: {w_data['precipitation_mm']}mm, Condition: '{w_data['weather_condition']}' (Source: {w_data['source']})")
 
-    # 6. System Status
+    # 6. Live Weather Assessment Parameter Ingestion
+    res = requests.get(f"{BASE_URL}/api/live-weather-assessment?lat=11.5540&lon=76.0422")
+    assert res.status_code == 200
+    lwa = res.json()
+    print(f"[PASS] GET /api/live-weather-assessment -> Live Rain: {lwa['rainfall_mm']}mm, Soil Saturation: {lwa['soil_moisture_pct']}%, Temp: {lwa['temperature']}°C (Source: {lwa['source']})")
+
+    # 7. Live Corridor Real-Time Hazard Monitoring
+    res = requests.get(f"{BASE_URL}/api/live-corridor-monitoring")
+    assert res.status_code == 200
+    lcm = res.json()
+    print(f"[PASS] GET /api/live-corridor-monitoring -> Successfully evaluated {lcm['monitored_corridors_count']} corridors:")
+    for c in lcm['corridors'][:2]:
+        print(f"       • {c['name']}: Live Rain {c['live_weather']['current_precipitation_mm']}mm | 24h Forecast {c['live_weather']['forecast_24h_mm']}mm | Calculated Risk: {c['live_calculated_risk']['score']} ({c['live_calculated_risk']['risk_class']})")
+
+    # 8. System Status
     res = requests.get(f"{BASE_URL}/api/system-status")
     assert res.status_code == 200
     s_data = res.json()
