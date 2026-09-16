@@ -1,0 +1,24 @@
+{
+  "model_architecture": "RandomForestClassifier",
+  "training_samples": 120,
+  "test_samples": 30,
+  "accuracy": 1.0,
+  "precision": 1.0,
+  "recall": 1.0,
+  "f1_score": 1.0,
+  "roc_auc": 1.0,
+  "feature_importances": {
+    "Rainfall Volume": 0.3243,
+    "Slope Angle": 0.0574,
+    "Soil Saturation": 0.219,
+    "Geological Weakness": 0.0176,
+    "Vegetation (NDVI)": 0.2713,
+    "Land Cover": 0.1098,
+    "Time Window": 0.0006
+  },
+  "parameters": {
+    "n_estimators": 120,
+    "max_depth": 5,
+    "random_state": 42
+  }
+}
