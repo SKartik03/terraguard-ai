@@ -361,7 +361,7 @@ def assess_location_risk(
     
     # 1. Rainfall
     rf = factors_input.get("rainfall")
-    if rf is not None and rf.get("value") is not None:
+    if rf is not None and rf.get("value") is not None and rf.get("status") not in ["Unavailable", "Not integrated"]:
         val = float(rf["value"])
         norm = min(max(val, 0.0), 150.0) / 150.0
         available_factors["rainfall"] = {
@@ -374,33 +374,33 @@ def assess_location_risk(
 
     # 2. Slope
     sl = factors_input.get("slope")
-    if sl is not None and sl.get("value") is not None:
+    if sl is not None and sl.get("value") is not None and sl.get("status") not in ["Unavailable", "Not integrated"]:
         val = float(sl["value"])
         norm = min(max(val, 0.0), 45.0) / 45.0
         available_factors["slope"] = {
             "name": "Terrain Slope Angle",
             "raw_value": f"{val:.1f}°",
             "normalized": round(norm, 4),
-            "status": sl.get("status", "Geographic"),
+            "status": sl.get("status", "Available"),
             "base_weight": LOCATION_BASE_WEIGHTS["slope"]
         }
 
     # 3. Soil Moisture
     sm = factors_input.get("soil_moisture")
-    if sm is not None and sm.get("value") is not None:
+    if sm is not None and sm.get("value") is not None and sm.get("status") not in ["Unavailable", "Not integrated"]:
         val = float(sm["value"])
         norm = min(max(val, 0.0), 80.0) / 80.0
         available_factors["soil_moisture"] = {
             "name": "Soil Saturation",
             "raw_value": f"{val:.1f}%",
             "normalized": round(norm, 4),
-            "status": sm.get("status", "Estimated"),
+            "status": sm.get("status", "Available"),
             "base_weight": LOCATION_BASE_WEIGHTS["soil_moisture"]
         }
 
     # 4. Geology
     geo = factors_input.get("geology")
-    if geo is not None and geo.get("value") is not None:
+    if geo is not None and geo.get("value") is not None and geo.get("status") not in ["Unavailable", "Not integrated"]:
         val_str = str(geo["value"])
         norm = GEOLOGY_MAP.get(val_str, 0.5)
         available_factors["geology"] = {
@@ -429,7 +429,7 @@ def assess_location_risk(
 
     # 6. NDVI
     nv = factors_input.get("ndvi")
-    if nv is not None and nv.get("value") is not None:
+    if nv is not None and nv.get("value") is not None and nv.get("status") not in ["Unavailable", "Not integrated"]:
         val = float(nv["value"])
         norm = 1.0 - min(max(val, 0.0), 1.0)
         available_factors["ndvi"] = {
@@ -442,7 +442,7 @@ def assess_location_risk(
 
     # 7. Land Cover
     lc = factors_input.get("land_cover")
-    if lc is not None and lc.get("value") is not None:
+    if lc is not None and lc.get("value") is not None and lc.get("status") not in ["Unavailable", "Not integrated"]:
         val_str = str(lc["value"])
         norm = LANDCOVER_MAP.get(val_str, 0.5)
         available_factors["land_cover"] = {
@@ -454,26 +454,28 @@ def assess_location_risk(
         }
 
     # Guard: Insufficient data check
-    # Require at least 3 factors and at least rainfall or slope
-    if len(available_factors) < 3 or ("rainfall" not in available_factors and "slope" not in available_factors):
+    # Require at least 2 environmental factors
+    if len(available_factors) < 2:
         return {
             "status": "INSUFFICIENT_DATA",
             "assessment_mode": assessment_mode,
             "message": "Insufficient data to generate a reliable assessment for this location.",
             "data_coverage": {
                 "available_factors": len(available_factors),
-                "total_factors": 7
+                "total_factors": 7 if has_history else 6,
+                "coverage_note": f"Score based on {len(available_factors)} of {7 if has_history else 6} factors"
             },
             "factors": {}
         }
 
-    # DYNAMIC WEIGHT NORMALIZATION
+    # DYNAMIC WEIGHT RENORMALIZATION RULE:
+    # Scale available weights proportionally so their sum is strictly 100.0%
     total_available_weight = sum(f["base_weight"] for f in available_factors.values())
     raw_score = 0.0
     factor_breakdown = {}
 
     for key, f in available_factors.items():
-        # Normalized weight scaled to 100% of available factors
+        # Proportional redistribution: w_i' = w_i / total_available_weight
         norm_weight = f["base_weight"] / total_available_weight
         weight_pct = round(norm_weight * 100.0, 1)
         pts = f["normalized"] * norm_weight * 100.0
@@ -489,12 +491,24 @@ def assess_location_risk(
             "hazard_level": "High" if f["normalized"] > 0.65 else ("Moderate" if f["normalized"] > 0.35 else "Low")
         }
 
-    # Add unavailable factor placeholders with explicit "Data unavailable" / "Historical: None"
+    # Add unavailable factor placeholders with explicit "Data unavailable" / "Not integrated" / "None"
     all_factor_keys = ["rainfall", "slope", "soil_moisture", "geology", "historical_evidence", "ndvi", "land_cover"]
     for key in all_factor_keys:
         if key not in factor_breakdown:
-            status_text = "None (No records found)" if key == "historical_evidence" else "Unavailable"
-            raw_text = "No historical records within search radius" if key == "historical_evidence" else "Data unavailable"
+            input_f = factors_input.get(key, {}) if isinstance(factors_input, dict) else {}
+            custom_status = input_f.get("status") if isinstance(input_f, dict) else None
+            custom_raw = input_f.get("raw_value") if isinstance(input_f, dict) else None
+            
+            if key == "historical_evidence":
+                status_text = "None (No records found)"
+                raw_text = "No historical records within search radius"
+            elif custom_status in ["Not integrated", "Unavailable"]:
+                status_text = custom_status
+                raw_text = custom_raw or ("Not integrated (Satellite credentials required)" if key == "ndvi" else "Data unavailable")
+            else:
+                status_text = "Unavailable"
+                raw_text = "Data unavailable"
+
             factor_breakdown[key] = {
                 "name": LOCATION_BASE_WEIGHTS_NAMES[key],
                 "raw_value": raw_text,
@@ -525,6 +539,9 @@ def assess_location_risk(
         historical_summary=historical_summary
     )
 
+    total_factors_evaluated = 7 if has_history else 6
+    coverage_note = f"Score based on {len(available_factors)} of {total_factors_evaluated} factors"
+
     return {
         "status": "SUCCESS",
         "assessment_mode": assessment_mode,
@@ -535,12 +552,13 @@ def assess_location_risk(
         ),
         "data_coverage": {
             "available_factors": len(available_factors),
-            "total_factors": 7,
-            "coverage_note": f"Assessment based on {len(available_factors)} of 7 available factors."
+            "total_factors": total_factors_evaluated,
+            "coverage_note": coverage_note
         },
         "raw_score": round(raw_score, 2),
         "multiplier": multiplier,
         "final_risk_score": final_score,
+        "final_risk_class": risk_class,
         "final_risk_class": risk_class,
         "dominant_factor": dominant_factor,
         "factors": factor_breakdown,

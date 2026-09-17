@@ -147,9 +147,14 @@ export default function RiskAssessmentView({ params, setParams, onRunAssessment 
     <div className="animate-fade-in">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontSize: '1.8rem', marginBottom: 4 }}>Risk Assessment Engine</h1>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 12, background: 'rgba(14, 165, 233, 0.12)', border: '1px solid rgba(14, 165, 233, 0.3)', color: 'var(--sky-400)', fontSize: '0.75rem', fontWeight: 600, marginBottom: 8 }}>
+            <Sliders size={13} /> Interactive Simulation & Stress Testing
+          </div>
+          <h1 style={{ fontSize: '1.8rem', marginBottom: 4 }}>
+            Custom Scenario — Manually Set Values for What-If Analysis
+          </h1>
           <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-            Configure environmental, hydrological, and geotechnical parameters for dual-layer evaluation.
+            Manually adjust any environmental, terrain, or hydrological factor to watch susceptibility recalculate in real-time. For real coordinate-specific live telemetry, use the <strong>"Analyze This Location"</strong> button on the Home or Risk Map views.
           </p>
         </div>
       </div>

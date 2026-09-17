@@ -32,11 +32,23 @@ import MethodologyView from './views/MethodologyView';
 import TechnicalArchitectureView from './views/TechnicalArchitectureView';
 import FutureExtensionsView from './views/FutureExtensionsView';
 import SystemStatusView from './views/SystemStatusView';
+import ErrorBoundary from './components/ErrorBoundary';
 
 export default function App() {
   const [currentView, setCurrentView] = useState('home');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [backendOnline, setBackendOnline] = useState(true);
+
+  // Result and Evaluation States
+  const [pendingResult, setPendingResult] = useState(null);
+  const [resultData, setResultData] = useState(() => {
+    try {
+      const saved = localStorage.getItem('terraguard_last_location_analysis');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
 
   // Default Assessment Parameters
   const [assessmentParams, setAssessmentParams] = useState({
@@ -325,78 +337,85 @@ export default function App() {
         </header>
 
         <main className="content-body">
-          {currentView === 'home' && (
-            <HomeView 
-              setView={setCurrentView} 
-              onStartLocationAnalysis={handleAnalyzeLocation} 
-            />
-          )}
-          {currentView === 'dashboard' && (
-            <DashboardView 
-              setView={setCurrentView} 
-              setAssessmentParams={setAssessmentParams} 
-            />
-          )}
-          {currentView === 'assessment' && (
-            <RiskAssessmentView 
-              params={assessmentParams} 
-              setParams={setAssessmentParams} 
-              onRunAssessment={handleRunAssessment} 
-            />
-          )}
-          {currentView === 'processing' && (
-            <ProcessingView 
-              onComplete={handleProcessingComplete} 
-              locationName={processingLocationName}
-            />
-          )}
-          {currentView === 'result' && (
-            <RiskResultView 
-              resultData={resultData} 
-              setView={setCurrentView} 
-              onRefreshAssessment={handleAnalyzeLocation}
-              onInspectOnMap={(lat, lon) => {
-                setActiveLocationTarget({ 
-                  lat, 
-                  lon, 
-                  name: resultData?.location?.name || "Target Area",
-                  region: resultData?.location?.region || "Evaluated Area"
-                });
-                setCurrentView('map');
-              }}
-            />
-          )}
-          {currentView === 'map' && (
-            <RiskMapView 
-              setView={setCurrentView} 
-              onStartLocationAnalysis={handleAnalyzeLocation}
-              initialTarget={activeLocationTarget}
-            />
-          )}
-          {currentView === 'events' && (
-            <HistoricalEventsView />
-          )}
-          {currentView === 'sources' && (
-            <DataSourcesView />
-          )}
-          {currentView === 'warning' && (
-            <EarlyWarningView />
-          )}
-          {currentView === 'route' && (
-            <SafeRouteView />
-          )}
-          {currentView === 'methodology' && (
-            <MethodologyView />
-          )}
-          {currentView === 'architecture' && (
-            <TechnicalArchitectureView />
-          )}
-          {currentView === 'extensions' && (
-            <FutureExtensionsView />
-          )}
-          {currentView === 'status' && (
-            <SystemStatusView />
-          )}
+          <ErrorBoundary currentView={currentView} onReset={() => setCurrentView('home')} onNavigateHome={() => setCurrentView('home')}>
+            {currentView === 'home' && (
+              <HomeView 
+                setView={setCurrentView} 
+                onStartLocationAnalysis={handleAnalyzeLocation} 
+              />
+            )}
+            {currentView === 'dashboard' && (
+              <DashboardView 
+                setView={setCurrentView} 
+                setAssessmentParams={setAssessmentParams} 
+              />
+            )}
+            {currentView === 'assessment' && (
+              <RiskAssessmentView 
+                params={assessmentParams} 
+                setParams={setAssessmentParams} 
+                onRunAssessment={handleRunAssessment} 
+              />
+            )}
+            {currentView === 'processing' && (
+              <ProcessingView 
+                onComplete={handleProcessingComplete} 
+                locationName={processingLocationName}
+              />
+            )}
+            {currentView === 'result' && (
+              <RiskResultView 
+                resultData={resultData} 
+                setView={setCurrentView} 
+                onRefreshAssessment={handleAnalyzeLocation}
+                onInspectOnMap={(lat, lon) => {
+                  setActiveLocationTarget({ 
+                    lat, 
+                    lon, 
+                    name: resultData?.location?.name || "Target Area",
+                    region: resultData?.location?.region || "Evaluated Area"
+                  });
+                  setCurrentView('map');
+                }}
+              />
+            )}
+            {currentView === 'map' && (
+              <RiskMapView 
+                setView={setCurrentView} 
+                onStartLocationAnalysis={handleAnalyzeLocation}
+                initialTarget={activeLocationTarget}
+              />
+            )}
+            {currentView === 'events' && (
+              <HistoricalEventsView />
+            )}
+            {currentView === 'sources' && (
+              <DataSourcesView />
+            )}
+            {currentView === 'warning' && (
+              <EarlyWarningView />
+            )}
+            {currentView === 'route' && (
+              <SafeRouteView 
+                activeLocation={activeLocationTarget || resultData?.location}
+                resultData={resultData}
+                onStartLocationAnalysis={handleAnalyzeLocation}
+                setView={setCurrentView}
+              />
+            )}
+            {currentView === 'methodology' && (
+              <MethodologyView />
+            )}
+            {currentView === 'architecture' && (
+              <TechnicalArchitectureView />
+            )}
+            {currentView === 'extensions' && (
+              <FutureExtensionsView />
+            )}
+            {currentView === 'status' && (
+              <SystemStatusView />
+            )}
+          </ErrorBoundary>
         </main>
       </div>
     </div>

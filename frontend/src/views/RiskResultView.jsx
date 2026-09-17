@@ -39,13 +39,50 @@ export default function RiskResultView({
 }) {
   const [refreshing, setRefreshing] = useState(false);
 
-  if (!resultData) {
+  // B1: Clear Error State on API failure
+  if (resultData?.error) {
     return (
-      <div className="glass-panel" style={{ padding: 40, textAlign: 'center' }}>
-        <h3>No Assessment Result Available</h3>
-        <p style={{ marginTop: 10, color: 'var(--text-muted)' }}>Please select a location to evaluate landslide susceptibility.</p>
-        <button onClick={() => setView('home')} className="btn btn-primary" style={{ marginTop: 20 }}>
-          Back to Location Selection
+      <div className="glass-panel animate-fade-in" style={{ padding: '48px 32px', textAlign: 'center', maxWidth: 640, margin: '40px auto', border: '1px solid rgba(239, 68, 68, 0.35)' }}>
+        <div style={{ display: 'inline-flex', padding: 16, borderRadius: '50%', background: 'rgba(239, 68, 68, 0.15)', color: '#EF4444', marginBottom: 18 }}>
+          <AlertTriangle size={38} />
+        </div>
+        <h2 style={{ fontSize: '1.35rem', color: '#FFFFFF', marginBottom: 12 }}>
+          Unable to load the risk assessment for this location right now. Please try again.
+        </h2>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.55, marginBottom: 26 }}>
+          The telemetry service or historical archive could not be reached for these coordinates. You can retry the assessment or choose another location on the map.
+        </p>
+        <div style={{ display: 'flex', gap: 14, justifyContent: 'center' }}>
+          {onRefreshAssessment && (
+            <button 
+              onClick={() => onRefreshAssessment(resultData.location?.latitude || 11.554, resultData.location?.longitude || 76.042, resultData.location?.name || "Target Area", true)}
+              className="btn btn-primary"
+              style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+            >
+              <RefreshCw size={16} /> Retry Assessment
+            </button>
+          )}
+          <button onClick={() => setView('home')} className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ArrowLeft size={16} /> Choose Another Location
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // B1: Clear Empty State when no resultData is loaded
+  if (!resultData || Object.keys(resultData).length === 0) {
+    return (
+      <div className="glass-panel animate-fade-in" style={{ padding: '48px 32px', textAlign: 'center', maxWidth: 600, margin: '40px auto' }}>
+        <div style={{ display: 'inline-flex', padding: 14, borderRadius: '50%', background: 'rgba(14, 165, 233, 0.15)', color: 'var(--sky-400)', marginBottom: 16 }}>
+          <MapPin size={32} />
+        </div>
+        <h3 style={{ fontSize: '1.3rem', color: '#FFFFFF', marginBottom: 8 }}>No Assessment Result Available</h3>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: 24, lineHeight: 1.5 }}>
+          Please select a location on the interactive map or search for a district to evaluate landslide susceptibility.
+        </p>
+        <button onClick={() => setView('home')} className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <MapPin size={16} /> Go to Location Selection
         </button>
       </div>
     );
@@ -76,12 +113,12 @@ export default function RiskResultView({
   const dataCoverage = resultData.data_coverage || { available_factors: 6, total_factors: 7, coverage_note: "6 of 7 factors evaluated" };
   const history = resultData.historical_evidence || { records_available: false, events_found: 0, search_radius_km: 25 };
   const conditions = resultData.current_conditions || {};
-  const factors = resultData.factors || {};
+  const rawFactors = resultData.factors || resultData.result?.layer1?.factors || {};
 
   const handleRefreshClick = async () => {
     if (onRefreshAssessment) {
       setRefreshing(true);
-      await onRefreshAssessment(loc.latitude, loc.longitude, loc.name);
+      await onRefreshAssessment(loc.latitude, loc.longitude, loc.name, true);
       setRefreshing(false);
     }
   };
@@ -108,26 +145,28 @@ export default function RiskResultView({
     }
   };
 
-  // Prepare factor array for table
-  const factorRows = Object.entries(factors).map(([key, f]) => ({
+  // Prepare factor array for table with honest "Data unavailable" fallback
+  const factorRows = Object.entries(rawFactors).map(([key, f]) => ({
     key,
     name: f.name || key,
-    rawValue: f.raw_value || "N/A",
+    rawValue: f.raw_value || (f.value !== undefined ? String(f.value) : "Data unavailable"),
     status: f.status || "Available",
-    normalized: f.normalized,
-    weightPct: f.normalized_weight_pct || 0,
+    normalized: f.normalized !== undefined ? f.normalized : null,
+    weightPct: f.normalized_weight_pct || f.weight_pct || 0,
     contribution: f.contribution || 0,
-    hazardLevel: f.hazardLevel || (f.normalized ? (f.normalized > 0.65 ? 'High' : (f.normalized > 0.35 ? 'Moderate' : 'Low')) : 'Excluded')
+    hazardLevel: f.hazardLevel || f.hazard_level || (f.normalized ? (f.normalized > 0.65 ? 'High' : (f.normalized > 0.35 ? 'Moderate' : 'Low')) : 'Excluded')
   }));
 
-  // Radar Chart Data
+  // Radar Chart Data with defensive empty handling
   const validRadarFactors = factorRows.filter(f => f.normalized !== null);
   const radarData = {
-    labels: validRadarFactors.map(f => `${f.name} (${f.weightPct}%)`),
+    labels: validRadarFactors.length > 0 
+      ? validRadarFactors.map(f => `${f.name} (${f.weightPct}%)`)
+      : ['No Active Factors'],
     datasets: [
       {
         label: 'Normalized Factor Value (0-1)',
-        data: validRadarFactors.map(f => f.normalized),
+        data: validRadarFactors.length > 0 ? validRadarFactors.map(f => f.normalized) : [0],
         backgroundColor: assessmentMode === 'historical_plus_current' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(14, 165, 233, 0.25)',
         borderColor: assessmentMode === 'historical_plus_current' ? '#EF4444' : '#0EA5E9',
         borderWidth: 2,
@@ -300,7 +339,11 @@ ${resultData.safety_disclaimer || "TerraGuard AI is a prototype data-analysis pl
           <span style={{ fontSize: '1rem', color: 'var(--text-muted)', marginTop: 4 }}>
             out of 100
           </span>
-          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 8, textAlign: 'center' }}>
+          {/* Missing-Factor Proportional Renormalization Badge */}
+          <div style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 14, background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.3)', color: 'var(--emerald-400)', fontSize: '0.78rem', fontWeight: 600 }}>
+            <Layers size={13} /> {dataCoverage.coverage_note || `Score based on ${dataCoverage.available_factors} of ${dataCoverage.total_factors} factors`}
+          </div>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6, textAlign: 'center' }}>
             (Calculated score, not a probability percentage)
           </span>
         </div>
@@ -382,30 +425,34 @@ ${resultData.safety_disclaimer || "TerraGuard AI is a prototype data-analysis pl
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
               <span style={{ color: 'var(--text-muted)' }}>Analysis Time:</span>
-              <span style={{ fontFamily: 'var(--font-mono)' }}>{new Date(timestamp).toLocaleString()}</span>
+              <span style={{ fontFamily: 'var(--font-mono)' }}>{new Date(timestamp).toLocaleTimeString()} ({new Date(timestamp).toLocaleDateString()})</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
               <span style={{ color: 'var(--text-muted)' }}>Current Weather:</span>
-              <span style={{ color: 'var(--emerald-400)', fontWeight: 600 }}>
-                {conditions.weather_status || 'Available'} ({conditions.weather_condition || 'Clear'})
+              <span style={{ color: conditions.weather_status === 'Available' ? 'var(--emerald-400)' : 'var(--amber-400)', fontWeight: 600 }}>
+                {conditions.weather_condition || 'Data unavailable'} ({conditions.weather_status || 'Unavailable'})
               </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
               <span style={{ color: 'var(--text-muted)' }}>Recent Rainfall / 24h Forecast:</span>
-              <span style={{ fontFamily: 'var(--font-mono)' }}>{conditions.rainfall_mm ?? '0.0'} mm / {conditions.forecast_24h_sum_mm ?? '0.0'} mm</span>
+              <span style={{ fontFamily: 'var(--font-mono)' }}>
+                {conditions.rainfall_mm !== null && conditions.rainfall_mm !== undefined ? `${conditions.rainfall_mm} mm` : 'Data unavailable'} / {conditions.forecast_24h_sum_mm !== null && conditions.forecast_24h_sum_mm !== undefined ? `${conditions.forecast_24h_sum_mm} mm` : 'Data unavailable'}
+              </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-              <span style={{ color: 'var(--text-muted)' }}>Terrain Data:</span>
-              <span style={{ color: 'var(--sky-400)' }}>Available ({conditions.slope_deg ?? '0.0'}° Slope)</span>
+              <span style={{ color: 'var(--text-muted)' }}>Terrain DEM & Slope:</span>
+              <span style={{ color: 'var(--sky-400)' }}>
+                {conditions.slope_deg !== null && conditions.slope_deg !== undefined ? `${conditions.slope_deg}° Slope (${conditions.elevation_m ? `${conditions.elevation_m}m elevation` : 'Open-Meteo DEM'})` : 'Data unavailable'}
+              </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
               <span style={{ color: 'var(--text-muted)' }}>Soil Moisture:</span>
-              <span>{conditions.soil_moisture_pct ? `${conditions.soil_moisture_pct}% (Estimated)` : 'Data unavailable'}</span>
+              <span>{conditions.soil_moisture_pct !== null && conditions.soil_moisture_pct !== undefined ? `${conditions.soil_moisture_pct}% (Hydrological Model)` : 'Data unavailable'}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
               <span style={{ color: 'var(--text-muted)' }}>Historical Records:</span>
               <span style={{ color: history.records_available ? 'var(--emerald-400)' : '#FCD34D' }}>
-                {history.records_available ? `Found (${history.events_found} events)` : 'Not Found'}
+                {history.records_available ? `Found (${history.events_found} events within 25km)` : 'None (No records found)'}
               </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6 }}>

@@ -11,7 +11,8 @@ import {
   Layers, 
   Info,
   Loader2,
-  ArrowRight
+  ArrowRight,
+  X
 } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
@@ -62,6 +63,8 @@ export default function HomeView({ setView, onStartLocationAnalysis }) {
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchHasSearched, setSearchHasSearched] = useState(false);
+  const [searchError, setSearchError] = useState(null);
   const searchContainerRef = useRef(null);
 
   // Geolocation Handler
@@ -117,32 +120,48 @@ export default function HomeView({ setView, onStartLocationAnalysis }) {
           "Location access was not available. You can search for a location or select a point directly on the map."
         );
       },
-      { timeout: 8000, enableHighAccuracy: true }
+      { timeout: 10000, enableHighAccuracy: true }
     );
   };
 
-  // Search query with debounce
+  // Explicit geocode search handler
+  const executeSearch = async (queryToSearch) => {
+    const q = (queryToSearch !== undefined ? queryToSearch : searchQuery).trim();
+    if (!q || q.length < 2) return;
+
+    setSearchLoading(true);
+    setSearchError(null);
+    setSearchHasSearched(true);
+    setSearchOpen(true);
+
+    try {
+      console.log(`[Search] Querying: /api/geocode?q=${encodeURIComponent(q)}`);
+      const res = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
+      if (!res.ok) throw new Error(`Geocode failed with status ${res.status}`);
+      const data = await res.json();
+      console.log(`[Search] Results for "${q}":`, data.results);
+      setSearchResults(data.results || []);
+    } catch (e) {
+      console.warn("Geocode error:", e);
+      setSearchError("Unable to reach geocoding service right now. Please select a point directly on the map.");
+      setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  // Debounced auto-search as user types
   useEffect(() => {
     if (!searchQuery || searchQuery.trim().length < 2) {
       setSearchResults([]);
+      setSearchHasSearched(false);
+      setSearchError(null);
       return;
     }
 
-    const timer = setTimeout(async () => {
-      setSearchLoading(true);
-      try {
-        const res = await fetch(`/api/geocode?q=${encodeURIComponent(searchQuery.trim())}`);
-        if (res.ok) {
-          const data = await res.json();
-          setSearchResults(data.results || []);
-          setSearchOpen(true);
-        }
-      } catch (e) {
-        console.warn("Geocode error:", e);
-      } finally {
-        setSearchLoading(false);
-      }
-    }, 300);
+    const timer = setTimeout(() => {
+      executeSearch(searchQuery);
+    }, 350);
 
     return () => clearTimeout(timer);
   }, [searchQuery]);
@@ -194,6 +213,26 @@ export default function HomeView({ setView, onStartLocationAnalysis }) {
     }
   };
 
+  // Close search on click outside or escape key
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target)) {
+        setSearchOpen(false);
+      }
+    };
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
   return (
     <div className="animate-fade-in">
       {/* Scope Honesty Banner */}
@@ -234,7 +273,15 @@ export default function HomeView({ setView, onStartLocationAnalysis }) {
           <button 
             onClick={() => {
               const el = document.getElementById('location-search-input');
-              if (el) el.focus();
+              if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el.focus();
+                if (searchQuery.trim().length >= 2) {
+                  executeSearch(searchQuery);
+                } else {
+                  setSearchOpen(true);
+                }
+              }
             }} 
             className="btn btn-secondary" 
             style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 8 }}
@@ -278,37 +325,114 @@ export default function HomeView({ setView, onStartLocationAnalysis }) {
               <h3 style={{ fontSize: '1rem', margin: 0 }}>Search Any Location</h3>
             </div>
             
-            <div style={{ position: 'relative' }}>
-              <input 
-                id="location-search-input"
-                type="text"
-                className="input-control"
-                placeholder="E.g. Kopargaon, Pune, Wayanad, Munnar, Shimla..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onFocus={() => { if (searchResults.length > 0) setSearchOpen(true); }}
-                style={{ paddingLeft: 34 }}
-              />
-              <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: 10, top: 12 }} />
-              {searchLoading && (
-                <Loader2 className="animate-spin" size={16} color="var(--emerald-400)" style={{ position: 'absolute', right: 10, top: 12 }} />
-              )}
-            </div>
+            <form 
+              onSubmit={(e) => {
+                e.preventDefault();
+                executeSearch(searchQuery);
+              }}
+              style={{ display: 'flex', gap: 8 }}
+            >
+              <div style={{ position: 'relative', flex: 1 }}>
+                <input 
+                  id="location-search-input"
+                  type="text"
+                  className="input-control"
+                  placeholder="E.g. Kopargaon, Pune, Wayanad, Munnar, Shimla..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onFocus={() => { if (searchResults.length > 0 || searchHasSearched) setSearchOpen(true); }}
+                  style={{ paddingLeft: 34, width: '100%' }}
+                />
+                <Search size={16} color="var(--text-muted)" style={{ position: 'absolute', left: 10, top: 12 }} />
+                {searchLoading && (
+                  <Loader2 className="animate-spin" size={16} color="var(--emerald-400)" style={{ position: 'absolute', right: 10, top: 12 }} />
+                )}
+              </div>
+              <button 
+                type="submit"
+                disabled={searchLoading || searchQuery.trim().length < 2}
+                className="btn btn-primary"
+                style={{ padding: '0 16px', display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem' }}
+              >
+                Search
+              </button>
+            </form>
 
-            {/* Suggestions Dropdown */}
+            {/* Suggestions In-Flow Container - Prevents overlapping sibling cards */}
             {searchOpen && searchResults.length > 0 && (
-              <div style={{ position: 'absolute', top: 96, left: 16, right: 16, background: '#0F172A', border: '1px solid var(--border-subtle)', borderRadius: 8, boxShadow: '0 12px 28px rgba(0,0,0,0.5)', zIndex: 1000, maxHeight: 220, overflowY: 'auto' }}>
-                {searchResults.map((item, idx) => (
-                  <div 
-                    key={idx}
-                    onClick={() => handleSelectSearchResult(item)}
-                    style={{ padding: '10px 12px', borderBottom: idx < searchResults.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none', cursor: 'pointer', transition: 'background 0.15s' }}
-                    className="hover-card"
+              <div style={{ marginTop: 12, background: 'rgba(15, 23, 42, 0.95)', border: '1px solid var(--emerald-500)', borderRadius: 8, overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,0.45)' }}>
+                <div style={{ padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.3)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    Found {searchResults.length} matching locations:
+                  </span>
+                  <button 
+                    type="button" 
+                    onClick={() => setSearchOpen(false)}
+                    style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: 4 }}
                   >
-                    <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--text-primary)' }}>{item.name}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{item.region} · {item.latitude}°, {item.longitude}°</div>
+                    <X size={12} /> Close
+                  </button>
+                </div>
+                <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                  {searchResults.map((item, idx) => (
+                    <div 
+                      key={idx}
+                      onClick={() => handleSelectSearchResult(item)}
+                      style={{ padding: '10px 14px', borderBottom: idx < searchResults.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none', cursor: 'pointer', transition: 'background 0.15s' }}
+                      className="hover-card"
+                    >
+                      <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--text-primary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>{item.name}</span>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--emerald-400)', fontWeight: 500 }}>Select &rarr;</span>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                        {item.region} · {item.latitude}°, {item.longitude}°
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* B2: Explicit No-results message */}
+            {searchOpen && searchHasSearched && searchResults.length === 0 && !searchLoading && !searchError && (
+              <div style={{ marginTop: 12, background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.4)', borderRadius: 8, padding: '12px 14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#FCD34D', fontWeight: 600, fontSize: '0.84rem' }}>
+                    <AlertTriangle size={15} /> No matching locations found for "{searchQuery}"
                   </div>
-                ))}
+                  <button 
+                    type="button" 
+                    onClick={() => setSearchOpen(false)}
+                    style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.76rem', color: 'var(--text-muted)', lineHeight: 1.45 }}>
+                  Please check the spelling, try a broader district name, or click directly anywhere on the adjacent map.
+                </p>
+              </div>
+            )}
+
+            {/* Explicit Search Error message */}
+            {searchOpen && searchError && !searchLoading && (
+              <div style={{ marginTop: 12, background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.4)', borderRadius: 8, padding: '12px 14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#EF4444', fontWeight: 600, fontSize: '0.84rem' }}>
+                    <AlertTriangle size={15} /> Geocoding Service Notice
+                  </div>
+                  <button 
+                    type="button" 
+                    onClick={() => setSearchOpen(false)}
+                    style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.76rem', color: 'var(--text-muted)', lineHeight: 1.45 }}>
+                  {searchError}
+                </p>
               </div>
             )}
 
