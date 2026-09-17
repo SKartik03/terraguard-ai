@@ -69,11 +69,18 @@ class LandslideDatasetScheduler:
             conn = sqlite3.connect(self.db_path, timeout=5.0)
             conn.execute("PRAGMA journal_mode=WAL;")
             cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(historical_events)")
+            cols = [c[1] for c in cursor.fetchall()]
+            if "added_at" not in cols:
+                cursor.execute("ALTER TABLE historical_events ADD COLUMN added_at TEXT DEFAULT '2024-07-30T00:00:00Z'")
+                conn.commit()
+
             cursor.execute("SELECT COUNT(*), MIN(event_date), MAX(event_date), MAX(added_at) FROM historical_events")
             total, min_d, max_d, last_add = cursor.fetchone()
             
             cursor.execute("SELECT COUNT(*) FROM historical_events WHERE id > 150")
             extended_count = cursor.fetchone()[0]
+
             conn.close()
 
             return {

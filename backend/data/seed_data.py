@@ -260,3 +260,12 @@ def generate_historical_events():
 
 if __name__ == "__main__":
     init_database()
+    try:
+        from data.extend_dataset import extend_dataset
+        extend_dataset()
+    except Exception:
+        try:
+            from extend_dataset import extend_dataset
+            extend_dataset()
+        except Exception as err:
+            print(f"Dataset extension note: {err}")
