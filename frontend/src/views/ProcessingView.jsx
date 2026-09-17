@@ -1,25 +1,27 @@
 import React, { useEffect, useState } from 'react';
-import { Cpu, CheckCircle2, Loader2, Database, ShieldAlert, BarChart3 } from 'lucide-react';
+import { Cpu, CheckCircle2, Loader2, MapPin, BookOpen, CloudSun, BarChart3, Bot, Compass } from 'lucide-react';
 
-export default function ProcessingView({ onComplete }) {
+export default function ProcessingView({ onComplete, locationName = "Selected Coordinates" }) {
   const [currentStep, setCurrentStep] = useState(0);
 
   const steps = [
-    { title: "Geospatial Data Ingestion", desc: "Validating coordinate boundary, elevation profile, and DEM interpolation..." },
-    { title: "Input Normalization", desc: "Mapping continuous hydrological variables to unit risk intervals (0.0 – 1.0)..." },
-    { title: "Layer 1 Deterministic Calculation", desc: "Applying 6-factor geotechnical weights and accumulation window multiplier..." },
-    { title: "Layer 2 Machine Learning Inference", desc: "Executing Random Forest ensemble classification on historical event tree..." },
-    { title: "Explainability & Advisory Synthesis", desc: "Ranking dominant hazard drivers and structuring actionable mitigation alerts..." }
+    { icon: MapPin, title: "Identifying location...", desc: `Resolving coordinates and geographic terrain boundary for ${locationName}...` },
+    { icon: BookOpen, title: "Checking historical landslide records...", desc: "Scanning 150+ documented events within 25 km proximity radius..." },
+    { icon: CloudSun, title: "Loading current conditions...", desc: "Ingesting live precipitation, 24h forecast, and temperature from Open-Meteo..." },
+    { icon: BarChart3, title: "Preparing risk factors...", desc: "Evaluating terrain slope, geological stability, and soil moisture saturation..." },
+    { icon: Bot, title: "Calculating assessment...", desc: "Applying dynamic factor normalization (Mode A / Mode B) and safety limits..." },
+    { icon: Compass, title: "Preparing result...", desc: "Synthesizing explainable justification and interactive spatial visualization..." }
   ];
 
   useEffect(() => {
-    const timer1 = setTimeout(() => setCurrentStep(1), 350);
-    const timer2 = setTimeout(() => setCurrentStep(2), 700);
-    const timer3 = setTimeout(() => setCurrentStep(3), 1100);
-    const timer4 = setTimeout(() => setCurrentStep(4), 1500);
-    const timer5 = setTimeout(() => {
+    const timer1 = setTimeout(() => setCurrentStep(1), 320);
+    const timer2 = setTimeout(() => setCurrentStep(2), 650);
+    const timer3 = setTimeout(() => setCurrentStep(3), 980);
+    const timer4 = setTimeout(() => setCurrentStep(4), 1300);
+    const timer5 = setTimeout(() => setCurrentStep(5), 1600);
+    const timer6 = setTimeout(() => {
       onComplete();
-    }, 1900);
+    }, 1950);
 
     return () => {
       clearTimeout(timer1);
@@ -27,26 +29,28 @@ export default function ProcessingView({ onComplete }) {
       clearTimeout(timer3);
       clearTimeout(timer4);
       clearTimeout(timer5);
+      clearTimeout(timer6);
     };
   }, [onComplete]);
 
   return (
-    <div className="animate-fade-in" style={{ maxWidth: 680, margin: '40px auto', textAlign: 'center' }}>
-      <div className="glass-panel" style={{ padding: '36px 32px' }}>
-        <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(14, 165, 233, 0.2))', border: '1px solid rgba(16, 185, 129, 0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px auto' }}>
-          <Cpu size={32} color="var(--emerald-400)" className="animate-spin" />
+    <div className="animate-fade-in" style={{ maxWidth: 660, margin: '30px auto', textAlign: 'center' }}>
+      <div className="glass-panel" style={{ padding: '34px 28px' }}>
+        <div style={{ width: 62, height: 62, borderRadius: '50%', background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(14, 165, 233, 0.2))', border: '1px solid rgba(16, 185, 129, 0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px auto' }}>
+          <Cpu size={30} color="var(--emerald-400)" className="animate-spin" />
         </div>
 
-        <h2 style={{ fontSize: '1.5rem', marginBottom: 8 }}>Computing Landslide Risk Assessment</h2>
-        <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginBottom: 28 }}>
-          Executing deterministic geotechnical calculations and empirical Random Forest inference.
+        <h2 style={{ fontSize: '1.45rem', marginBottom: 6 }}>Analyzing Location for Landslide Susceptibility</h2>
+        <p style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', marginBottom: 24 }}>
+          Target: <strong style={{ color: 'var(--emerald-400)' }}>{locationName}</strong>
         </p>
 
-        {/* Pipeline Stepper */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, textAlign: 'left' }}>
+        {/* 6-Stage Pipeline Stepper */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, textAlign: 'left' }}>
           {steps.map((step, idx) => {
             const isCompleted = idx < currentStep;
             const isCurrent = idx === currentStep;
+            const Icon = step.icon;
 
             return (
               <div 
@@ -54,28 +58,30 @@ export default function ProcessingView({ onComplete }) {
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 16,
-                  padding: '12px 16px',
+                  gap: 14,
+                  padding: '10px 14px',
                   borderRadius: 8,
-                  background: isCurrent ? 'rgba(16, 185, 129, 0.08)' : (isCompleted ? 'rgba(15, 23, 42, 0.8)' : 'rgba(15, 23, 42, 0.4)'),
-                  border: `1px solid ${isCurrent ? 'var(--border-active)' : (isCompleted ? 'rgba(16, 185, 129, 0.2)' : 'var(--border-subtle)')}`,
+                  background: isCurrent ? 'rgba(16, 185, 129, 0.09)' : (isCompleted ? 'rgba(15, 23, 42, 0.75)' : 'rgba(15, 23, 42, 0.35)'),
+                  border: `1px solid ${isCurrent ? 'var(--emerald-500)' : (isCompleted ? 'rgba(16, 185, 129, 0.25)' : 'var(--border-subtle)')}`,
                   transition: 'all 0.2s ease'
                 }}
               >
-                <div style={{ width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {isCompleted ? (
-                    <CheckCircle2 size={20} color="var(--emerald-400)" />
+                    <CheckCircle2 size={18} color="var(--emerald-400)" />
                   ) : isCurrent ? (
-                    <Loader2 size={20} color="var(--sky-400)" className="animate-spin" />
+                    <Loader2 size={18} color="var(--sky-400)" className="animate-spin" />
                   ) : (
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{idx + 1}</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{idx + 1}</span>
                   )}
                 </div>
+
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 600, color: isCurrent ? 'var(--text-primary)' : (isCompleted ? 'var(--text-secondary)' : 'var(--text-muted)') }}>
+                  <div style={{ fontSize: '0.86rem', fontWeight: 600, color: isCurrent ? 'var(--text-primary)' : (isCompleted ? 'var(--text-secondary)' : 'var(--text-muted)'), display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Icon size={14} color={isCurrent ? 'var(--sky-400)' : (isCompleted ? 'var(--emerald-400)' : 'var(--text-muted)')} />
                     {step.title}
                   </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
                     {step.desc}
                   </div>
                 </div>

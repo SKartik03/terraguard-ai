@@ -1,47 +1,112 @@
 import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Circle, LayersControl } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Circle, LayersControl, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import { MapPin, Info, ArrowUpRight, Layers, Shield } from 'lucide-react';
+import { MapPin, Info, ArrowUpRight, Layers, Shield, Sparkles, Navigation, BookOpen } from 'lucide-react';
 
-const customIcon = (color) => new L.DivIcon({
+const pinIcon = (color) => new L.DivIcon({
   className: 'custom-pin',
-  html: `<div style="background-color: ${color}; width: 18px; height: 18px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 12px ${color};"></div>`,
-  iconSize: [18, 18],
-  iconAnchor: [9, 9]
+  html: `<div style="background-color: ${color}; width: 16px; height: 16px; border-radius: 50%; border: 2.5px solid white; box-shadow: 0 0 10px ${color};"></div>`,
+  iconSize: [16, 16],
+  iconAnchor: [8, 8]
 });
 
-export default function RiskMapView({ setView, setAssessmentParams }) {
-  const [mapFeatures, setMapFeatures] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedSite, setSelectedSite] = useState(null);
+const userPickIcon = new L.DivIcon({
+  className: 'user-pick-pin',
+  html: `<div style="background-color: #10B981; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 16px #10B981; display: flex; align-items: center; justify-content: center; color: white; font-size: 13px;">📍</div>`,
+  iconSize: [24, 24],
+  iconAnchor: [12, 12]
+});
 
+const historicalIcon = new L.DivIcon({
+  className: 'historical-event-pin',
+  html: `<div style="background-color: #EF4444; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 8px #EF4444;"></div>`,
+  iconSize: [12, 12],
+  iconAnchor: [6, 6]
+});
+
+function MapClickHandler({ onMapClick }) {
+  useMapEvents({
+    click(e) {
+      onMapClick(e.latlng.lat, e.latlng.lng);
+    }
+  });
+  return null;
+}
+
+function MapRecenter({ target }) {
+  const map = useMap();
   useEffect(() => {
-    const fetchMap = async () => {
+    if (target && target[0] && target[1]) {
+      map.flyTo(target, Math.max(map.getZoom(), 8), { duration: 1.0 });
+    }
+  }, [target, map]);
+  return null;
+}
+
+export default function RiskMapView({ 
+  setView, 
+  onStartLocationAnalysis,
+  initialTarget = null
+}) {
+  const [mapFeatures, setMapFeatures] = useState([]);
+  const [historicalEvents, setHistoricalEvents] = useState([]);
+  const [selectedPoint, setSelectedPoint] = useState(
+    initialTarget || { lat: 11.5540, lon: 76.0422, name: "Wayanad Vythiri Ghats", region: "Western Ghats, Kerala" }
+  );
+  const [loading, setLoading] = useState(true);
+  const [showHistoryLayer, setShowHistoryLayer] = useState(true);
+  const [showRiskBuffer, setShowRiskBuffer] = useState(true);
+
+  // Fetch baseline corridors & historical landslide dataset
+  useEffect(() => {
+    const loadMapData = async () => {
       try {
-        const res = await fetch('/api/risk-map');
-        const data = await res.json();
-        setMapFeatures(data.features || []);
-        if (data.features && data.features.length > 0) {
-          setSelectedSite(data.features[0]);
+        const [featRes, histRes] = await Promise.all([
+          fetch('/api/risk-map'),
+          fetch('/api/historical-events?limit=80&landslide_only=true')
+        ]);
+        
+        if (featRes.ok) {
+          const fData = await featRes.json();
+          setMapFeatures(fData.features || []);
+        }
+        if (histRes.ok) {
+          const hData = await histRes.json();
+          setHistoricalEvents(hData.events || []);
         }
       } catch (err) {
-        console.warn("Using offline map features:", err);
-        const fallback = [
-          { id: 1, name: "Wayanad Vythiri Ghats", region: "Western Ghats, Kerala", coordinates: [11.5540, 76.0422], slope: 38.5, geology: "Weak", soil_moisture: 72.0, ndvi: 0.45, land_cover: "Barren", description: "Monsoonal fracture zone with extensive slope destabilization history.", risk_score: 78.4, risk_class: "HIGH", dominant_factor: "Rainfall Volume" },
-          { id: 2, name: "Joshimath Subsidence Ridge", region: "Chamoli, Uttarakhand", coordinates: [30.5564, 79.5663], slope: 42.0, geology: "Weak", soil_moisture: 58.0, ndvi: 0.22, land_cover: "Barren", description: "Ancient landslide debris mound with active tectonic shearing.", risk_score: 86.2, risk_class: "CRITICAL", dominant_factor: "Terrain Slope Angle" },
-          { id: 3, name: "Malin Hills Escarpment", region: "Pune Western Ghats, Maharashtra", coordinates: [19.1608, 73.6827], slope: 36.0, geology: "Weak", soil_moisture: 65.0, ndvi: 0.38, land_cover: "Agriculture", description: "Terraced basaltic hillslopes vulnerable to prolonged cloudburst saturation.", risk_score: 74.5, risk_class: "HIGH", dominant_factor: "Rainfall Volume" },
-          { id: 4, name: "Nilgiris Coonoor Slopes", region: "Nilgiri Hills, Tamil Nadu", coordinates: [11.3530, 76.7959], slope: 28.0, geology: "Moderate", soil_moisture: 48.0, ndvi: 0.65, land_cover: "Grassland", description: "Lateritic clay formations on steep tea estate slopes.", risk_score: 52.8, risk_class: "MODERATE", dominant_factor: "Slope Angle" },
-          { id: 5, name: "Shimla Upper Ridge", region: "Himachal Pradesh", coordinates: [31.1048, 77.1734], slope: 31.5, geology: "Moderate", soil_moisture: 42.0, ndvi: 0.58, land_cover: "Urban", description: "Overloaded ridge corridor with mixed phyllite-quartzite bedrock.", risk_score: 55.4, risk_class: "MODERATE", dominant_factor: "Slope Angle" },
-          { id: 6, name: "Darjeeling Lebong Spur", region: "Eastern Himalayas, West Bengal", coordinates: [27.0410, 88.2663], slope: 34.0, geology: "Weak", soil_moisture: 62.0, ndvi: 0.40, land_cover: "Barren", description: "Gneissic weathered soil layers susceptible to debris flows.", risk_score: 76.1, risk_class: "HIGH", dominant_factor: "Geological Bedrock" }
-        ];
-        setMapFeatures(fallback);
-        setSelectedSite(fallback[0]);
+        console.warn("Map data fallback:", err);
       } finally {
         setLoading(false);
       }
     };
-    fetchMap();
+    loadMapData();
   }, []);
+
+  const handleMapClick = async (lat, lon) => {
+    const rLat = parseFloat(lat.toFixed(4));
+    const rLon = parseFloat(lon.toFixed(4));
+
+    try {
+      const res = await fetch(`/api/reverse-geocode?lat=${rLat}&lon=${rLon}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedPoint({
+          lat: rLat,
+          lon: rLon,
+          name: data.name || `Point (${rLat}°, ${rLon}°)`,
+          region: data.region || "Selected Map Location"
+        });
+      }
+    } catch {
+      setSelectedPoint({
+        lat: rLat,
+        lon: rLon,
+        name: `Selected Coordinates (${rLat}°, ${rLon}°)`,
+        region: "User Coordinate Pick"
+      });
+    }
+  };
 
   const getRiskColor = (cls) => {
     switch (cls) {
@@ -52,190 +117,228 @@ export default function RiskMapView({ setView, setAssessmentParams }) {
     }
   };
 
-  const handleAssessSite = (site) => {
-    setAssessmentParams({
-      location_name: site.name,
-      latitude: site.coordinates[0],
-      longitude: site.coordinates[1],
-      rainfall_mm: 90.0,
-      slope_deg: site.slope,
-      soil_moisture_pct: site.soil_moisture,
-      geology_condition: site.geology,
-      ndvi: site.ndvi,
-      land_cover: site.land_cover,
-      window_hours: 24
-    });
-    setView('assessment');
+  const handleAnalyzeSelected = () => {
+    if (onStartLocationAnalysis) {
+      onStartLocationAnalysis(selectedPoint.lat, selectedPoint.lon, selectedPoint.name);
+    } else {
+      setView('assessment');
+    }
   };
 
   return (
     <div className="animate-fade-in">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+      {/* Header with Title & Legend */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ fontSize: '1.8rem', marginBottom: 4 }}>GIS Geospatial Hazard Corridors</h1>
-          <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-            Interactive OpenStreetMap visualization of high-risk mountain corridors across India.
+          <h1 style={{ fontSize: '1.75rem', marginBottom: 2 }}>Interactive Geospatial Risk Map</h1>
+          <p style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', margin: 0 }}>
+            Click anywhere on the map to place a target marker and run a location-first landslide assessment.
           </p>
         </div>
-        
+
         {/* Legend */}
-        <div style={{ display: 'flex', gap: 14, background: 'rgba(15, 23, 42, 0.8)', padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border-subtle)', fontSize: '0.75rem' }}>
+        <div style={{ display: 'flex', gap: 12, background: 'rgba(15, 23, 42, 0.8)', padding: '6px 14px', borderRadius: 8, border: '1px solid var(--border-subtle)', fontSize: '0.74rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#EF4444' }} /> Critical (85+)
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#10B981' }} /> 📍 Selected Location
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#F97316' }} /> High (70-84)
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#EF4444' }} /> Historical Landslides
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#F59E0B' }} /> Moderate (40-69)
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#10B981' }} /> Low (0-39)
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#F97316' }} /> Monitored Corridors
           </div>
         </div>
       </div>
 
-      {/* Main Map + Sidebar Inspector */}
+      {/* Main Map + Inspector Layout */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 20, height: 'calc(100vh - 220px)', minHeight: 520 }}>
-        {/* Leaflet Map Canvas */}
+        
+        {/* Leaflet Canvas */}
         <div className="glass-panel" style={{ overflow: 'hidden', position: 'relative' }}>
-          <MapContainer center={[22.5937, 78.9629]} zoom={4.6} style={{ height: '100%', width: '100%' }}>
-            <LayersControl position="topright">
-              <LayersControl.BaseLayer checked name="OpenStreetMap Standard">
-                <TileLayer
-                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
-              </LayersControl.BaseLayer>
-              <LayersControl.BaseLayer name="Esri World Imagery (Satellite)">
-                <TileLayer
-                  attribution='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
-                  url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                />
-              </LayersControl.BaseLayer>
-              <LayersControl.BaseLayer name="OpenTopoMap (Topography)">
-                <TileLayer
-                  attribution='Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>'
-                  url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
-                />
-              </LayersControl.BaseLayer>
-            </LayersControl>
+          
+          {/* Layer Quick Toggles */}
+          <div style={{ position: 'absolute', top: 12, left: 14, zIndex: 500, display: 'flex', gap: 8 }}>
+            <button 
+              onClick={() => setShowHistoryLayer(!showHistoryLayer)}
+              style={{ background: showHistoryLayer ? 'rgba(239, 68, 68, 0.25)' : 'rgba(15, 23, 42, 0.8)', border: `1px solid ${showHistoryLayer ? '#EF4444' : 'var(--border-subtle)'}`, color: 'white', borderRadius: 6, padding: '4px 10px', fontSize: '0.74rem', cursor: 'pointer' }}
+            >
+              {showHistoryLayer ? "Hide Historical Pins" : "Show Historical Pins"}
+            </button>
+            <button 
+              onClick={() => setShowRiskBuffer(!showRiskBuffer)}
+              style={{ background: showRiskBuffer ? 'rgba(16, 185, 129, 0.25)' : 'rgba(15, 23, 42, 0.8)', border: `1px solid ${showRiskBuffer ? '#10B981' : 'var(--border-subtle)'}`, color: 'white', borderRadius: 6, padding: '4px 10px', fontSize: '0.74rem', cursor: 'pointer' }}
+            >
+              {showRiskBuffer ? "Hide 25km Buffer" : "Show 25km Buffer"}
+            </button>
+          </div>
 
-            {mapFeatures.map((feat) => (
-              <React.Fragment key={feat.id}>
-                <Marker 
-                  position={feat.coordinates}
-                  icon={customIcon(getRiskColor(feat.risk_class))}
-                  eventHandlers={{
-                    click: () => setSelectedSite(feat)
-                  }}
-                >
+          <MapContainer 
+            center={[selectedPoint.lat, selectedPoint.lon]} 
+            zoom={6} 
+            style={{ height: '100%', width: '100%' }}
+          >
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+
+            <MapClickHandler onMapClick={handleMapClick} />
+            <MapRecenter target={[selectedPoint.lat, selectedPoint.lon]} />
+
+            {/* Selected Location Marker */}
+            {selectedPoint && (
+              <>
+                <Marker position={[selectedPoint.lat, selectedPoint.lon]} icon={userPickIcon}>
                   <Popup>
-                    <div style={{ minWidth: 200, padding: 4 }}>
-                      <strong style={{ color: '#0F172A', fontSize: '0.9rem' }}>{feat.name}</strong>
-                      <div style={{ fontSize: '0.75rem', color: '#475569', marginTop: 3 }}>
-                        Region: {feat.region}
-                      </div>
-                      <div style={{ fontSize: '0.78rem', color: getRiskColor(feat.risk_class), fontWeight: 700, marginTop: 4 }}>
-                        Baseline Risk: {feat.risk_score} ({feat.risk_class})
-                      </div>
-                      <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: 2 }}>
-                        Slope: {feat.slope}° | Geology: {feat.geology}
-                      </div>
+                    <div style={{ color: '#0F172A', padding: '4px' }}>
+                      <strong style={{ fontSize: '0.92rem' }}>📍 Selected Location</strong>
+                      <div style={{ fontSize: '0.82rem', marginTop: 2 }}>{selectedPoint.name}</div>
+                      <div style={{ fontSize: '0.74rem', color: '#64748B' }}>{selectedPoint.lat}°N, {selectedPoint.lon}°E</div>
                       <button 
-                        onClick={() => handleAssessSite(feat)}
-                        style={{ marginTop: 8, padding: '4px 10px', background: '#059669', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.72rem', width: '100%', fontWeight: 600 }}
+                        onClick={handleAnalyzeSelected}
+                        style={{ marginTop: 8, background: '#10B981', color: 'white', border: 'none', borderRadius: 4, padding: '6px 10px', fontSize: '0.76rem', cursor: 'pointer', width: '100%', fontWeight: 700 }}
                       >
-                        Assess This Site
+                        🔍 Analyze This Location
                       </button>
                     </div>
                   </Popup>
                 </Marker>
 
-                <Circle
-                  center={feat.coordinates}
-                  radius={45000}
-                  pathOptions={{
-                    color: getRiskColor(feat.risk_class),
-                    fillColor: getRiskColor(feat.risk_class),
-                    fillOpacity: 0.18,
-                    weight: 1.5
-                  }}
-                />
-              </React.Fragment>
+                {showRiskBuffer && (
+                  <Circle 
+                    center={[selectedPoint.lat, selectedPoint.lon]} 
+                    radius={25000} 
+                    pathOptions={{ color: '#10B981', fillColor: '#10B981', fillOpacity: 0.12, weight: 1.5, dashArray: '4, 4' }} 
+                  />
+                )}
+              </>
+            )}
+
+            {/* Historical Landslide Event Pins */}
+            {showHistoryLayer && historicalEvents.map((evt, idx) => (
+              <Marker 
+                key={idx} 
+                position={[evt.latitude, evt.longitude]} 
+                icon={historicalIcon}
+              >
+                <Popup>
+                  <div style={{ color: '#0F172A', minWidth: 200, padding: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#EF4444' }} />
+                      <strong style={{ fontSize: '0.86rem' }}>Historical Landslide</strong>
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#334155' }}>
+                      <div><strong>Date:</strong> {evt.event_date}</div>
+                      <div><strong>Location:</strong> {evt.location_name}</div>
+                      <div><strong>Rainfall:</strong> {evt.rainfall_mm} mm</div>
+                      <div><strong>Severity:</strong> <span style={{ color: evt.severity === 'CRITICAL' ? '#EF4444' : '#F59E0B', fontWeight: 600 }}>{evt.severity}</span></div>
+                      <div><strong>Source:</strong> GSI / NASA Historical Catalogue</div>
+                      {evt.notes && <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: 4 }}>«{evt.notes}»</div>}
+                    </div>
+                  </div>
+                </Popup>
+              </Marker>
             ))}
+
+            {/* Demonstration Hazard Corridors */}
+            {mapFeatures.map((feat) => (
+              <Marker 
+                key={feat.id}
+                position={feat.coordinates}
+                icon={pinIcon(getRiskColor(feat.risk_class))}
+                eventHandlers={{
+                  click: () => setSelectedPoint({ lat: feat.coordinates[0], lon: feat.coordinates[1], name: feat.name, region: feat.region })
+                }}
+              >
+                <Popup>
+                  <div style={{ color: '#0F172A', minWidth: 190, padding: 4 }}>
+                    <strong style={{ fontSize: '0.88rem' }}>{feat.name}</strong>
+                    <div style={{ fontSize: '0.76rem', color: '#475569', marginTop: 2 }}>{feat.region}</div>
+                    <div style={{ fontSize: '0.78rem', color: getRiskColor(feat.risk_class), fontWeight: 700, marginTop: 4 }}>
+                      Baseline Risk: {feat.risk_score} ({feat.risk_class})
+                    </div>
+                    <button 
+                      onClick={() => {
+                        setSelectedPoint({ lat: feat.coordinates[0], lon: feat.coordinates[1], name: feat.name, region: feat.region });
+                        handleAnalyzeSelected();
+                      }}
+                      style={{ marginTop: 6, background: '#0EA5E9', color: 'white', border: 'none', borderRadius: 4, padding: '4px 8px', fontSize: '0.74rem', cursor: 'pointer', width: '100%', fontWeight: 600 }}
+                    >
+                      Analyze Corridor
+                    </button>
+                  </div>
+                </Popup>
+              </Marker>
+            ))}
+
           </MapContainer>
         </div>
 
-        {/* Selected Site Details Inspector */}
-        <div className="glass-panel" style={{ padding: '22px 20px', display: 'flex', flexDirection: 'column' }}>
-          <h3 style={{ fontSize: '1rem', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Info size={16} color="var(--sky-400)" /> Site Geotechnical Inspector
-          </h3>
-
-          {selectedSite ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: 1 }}>
-              <div style={{ padding: 12, background: 'rgba(15, 23, 42, 0.7)', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Corridor Node</div>
-                <h4 style={{ fontSize: '1.1rem', margin: '2px 0 4px 0' }}>{selectedSite.name}</h4>
-                <div style={{ fontSize: '0.75rem', color: 'var(--sky-400)' }}>{selectedSite.region}</div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div style={{ padding: 10, background: 'rgba(15, 23, 42, 0.5)', borderRadius: 6 }}>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Calculated Risk</span>
-                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: getRiskColor(selectedSite.risk_class) }}>
-                    {selectedSite.risk_score}
-                  </div>
-                  <span style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>{selectedSite.risk_class}</span>
-                </div>
-
-                <div style={{ padding: 10, background: 'rgba(15, 23, 42, 0.5)', borderRadius: 6 }}>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Slope Angle</span>
-                  <div style={{ fontSize: '1.2rem', fontWeight: 800 }}>
-                    {selectedSite.slope}°
-                  </div>
-                  <span style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Inclination</span>
-                </div>
-              </div>
-
-              <div style={{ fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: 6 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>Bedrock Geology:</span>
-                  <strong>{selectedSite.geology}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: 6 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>Baseline Soil Moisture:</span>
-                  <strong>{selectedSite.soil_moisture}%</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: 6 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>Vegetation (NDVI):</span>
-                  <strong>{selectedSite.ndvi}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: 6 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>Land Cover:</span>
-                  <strong>{selectedSite.land_cover}</strong>
-                </div>
-              </div>
-
-              <p style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 'auto', background: 'rgba(15, 23, 42, 0.5)', padding: 10, borderRadius: 6 }}>
-                {selectedSite.description}
-              </p>
-
-              <button 
-                onClick={() => handleAssessSite(selectedSite)}
-                className="btn btn-primary"
-                style={{ width: '100%', padding: '10px' }}
-              >
-                Load In Risk Calculator <ArrowUpRight size={15} />
-              </button>
+        {/* Right Sidebar: Selected Location Inspector */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          
+          <div className="glass-panel" style={{ padding: '20px', border: '1px solid rgba(16, 185, 129, 0.4)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10B981' }} />
+              <strong style={{ fontSize: '0.82rem', textTransform: 'uppercase', color: 'var(--emerald-400)' }}>Active Location</strong>
             </div>
-          ) : (
-            <div style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>
-              Click on a map marker to inspect geotechnical parameters.
+
+            <h3 style={{ fontSize: '1.2rem', marginBottom: 4, color: 'white' }}>
+              📍 {selectedPoint.name}
+            </h3>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 14 }}>
+              {selectedPoint.region}
+            </p>
+
+            <div style={{ background: 'rgba(0,0,0,0.3)', padding: '10px 12px', borderRadius: 6, fontSize: '0.8rem', fontFamily: 'var(--font-mono)', marginBottom: 16 }}>
+              <div>Latitude: <strong>{selectedPoint.lat}°N</strong></div>
+              <div style={{ marginTop: 4 }}>Longitude: <strong>{selectedPoint.lon}°E</strong></div>
             </div>
-          )}
+
+            <button 
+              onClick={handleAnalyzeSelected}
+              className="btn btn-primary" 
+              style={{ width: '100%', padding: '12px', fontSize: '0.95rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 14px rgba(16, 185, 129, 0.3)' }}
+            >
+              <Sparkles size={16} /> 🔍 Analyze This Location
+            </button>
+            <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center', margin: '6px 0 0 0' }}>
+              Queries 25km historical landslide proximity
+            </p>
+          </div>
+
+          {/* Map Layer Legend & Stats Card */}
+          <div className="glass-panel" style={{ padding: '18px 20px', flex: 1, fontSize: '0.82rem' }}>
+            <h4 style={{ fontSize: '0.95rem', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Layers size={16} color="var(--sky-400)" /> Map Layer Information
+            </h4>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, color: 'var(--text-secondary)' }}>
+              <div>
+                <strong style={{ color: 'white' }}>Historical Database:</strong>
+                <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', margin: '2px 0 0 0' }}>
+                  {historicalEvents.length} documented landslide records mapped from GSI Bhukosh & NASA GLC.
+                </p>
+              </div>
+
+              <div>
+                <strong style={{ color: 'white' }}>Proximity Search Buffer:</strong>
+                <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', margin: '2px 0 0 0' }}>
+                  Dotted green circle represents the 25 km geotechnical proximity zone evaluated during risk calculation.
+                </p>
+              </div>
+
+              <div>
+                <strong style={{ color: 'white' }}>Click-on-Map Selection:</strong>
+                <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', margin: '2px 0 0 0' }}>
+                  Click anywhere in India or global mountainous zones to position the analysis pin.
+                </p>
+              </div>
+            </div>
+          </div>
+
         </div>
+
       </div>
     </div>
   );
