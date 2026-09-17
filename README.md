@@ -10,6 +10,11 @@
 </p>
 
 <p align="center">
+  <a href="https://terraguard-ai-fawn.vercel.app"><img src="https://img.shields.io/badge/🚀_Live_Demo-terraguard--ai--fawn.vercel.app-000000?style=for-the-badge&logo=vercel&logoColor=white" alt="Live Demo"></a>
+  <a href="https://terraguard-ai-ew30.onrender.com/docs"><img src="https://img.shields.io/badge/API_Docs-FastAPI_Swagger-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="API Docs"></a>
+</p>
+
+<p align="center">
   <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/Backend-FastAPI-009688.svg?style=flat&logo=FastAPI&logoColor=white" alt="FastAPI"></a>
   <a href="https://react.dev/"><img src="https://img.shields.io/badge/Frontend-React_18-61DAFB.svg?style=flat&logo=React&logoColor=black" alt="React"></a>
   <a href="https://vitejs.dev/"><img src="https://img.shields.io/badge/Bundler-Vite_6-646CFF.svg?style=flat&logo=Vite&logoColor=white" alt="Vite"></a>
@@ -20,6 +25,7 @@
   <img src="https://img.shields.io/badge/Status-100%25_Passing-brightgreen.svg?style=flat" alt="Passing">
   <img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat" alt="MIT License">
 </p>
+
 
 ---
 
