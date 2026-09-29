@@ -22,9 +22,7 @@ from risk_engine import (
     predictor, 
     haversine_distance, 
     assess_location_risk, 
-    calculate_historical_evidence_score,
-    generate_gemini_alert_dispatch,
-    LANGUAGE_NAMES
+    calculate_historical_evidence_score
 )
 from scheduler import dataset_scheduler
 
@@ -605,9 +603,7 @@ def analyze_location(
     risk_output = assess_location_risk(
         factors_input=factors_input,
         historical_summary=history_res,
-        window_hours=24,
-        location_name=location_name,
-        coordinates=(lat, lon)
+        window_hours=24
     )
 
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -640,67 +636,12 @@ def analyze_location(
         "dominant_factor": risk_output["dominant_factor"],
         "factors": risk_output["factors"],
         "explanation": risk_output["explanation"],
-        "explanation_source": risk_output.get("explanation_source", "rule_based_fallback"),
         "safety_disclaimer": risk_output["safety_disclaimer"],
         "timestamp": now_iso
     }
 
     ANALYSIS_CACHE[cache_key] = {"cached_at": now_ts, "payload": payload}
     return payload
-
-
-@app.get("/api/location/alert-dispatch")
-def alert_dispatch_endpoint(
-    lat: float = Query(..., description="Latitude of target location"),
-    lon: float = Query(..., description="Longitude of target location"),
-    language: str = Query("en", description="Target language code (e.g., hi, ml, bn, en)"),
-    radius_km: float = Query(25.0, description="Historical search radius in km")
-):
-    """
-    FEATURE B: Gemini-Generated Multilingual Alert Dispatch.
-    Generates a concise, civil-alert-style message in the requested language
-    based strictly on the computed risk assessment for this location.
-    If Gemini API is not configured or fails, returns an explicit error without falling back to fake text.
-    """
-    # 1. Fetch or compute the current location risk assessment
-    assessment_payload = analyze_location(lat=lat, lon=lon, radius_km=radius_km)
-    if not assessment_payload:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "Unable to calculate risk assessment for alert dispatch"}
-        )
-
-    # 2. Check Gemini generation
-    lang_code = language.lower().strip()
-    alert_text = generate_gemini_alert_dispatch(
-        assessment_data=assessment_payload,
-        language=lang_code
-    )
-
-    if not alert_text:
-        # As per Part A Section 4: Return clear error response, do NOT fall back to hardcoded fake translation
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "Alert generation is temporarily unavailable",
-                "message": "Gemini API key is not configured or Google Gemini API service is temporarily unreachable. Pre-computed alert templates are omitted to ensure translation integrity.",
-                "language_requested": lang_code
-            }
-        )
-
-    return {
-        "status": "SUCCESS",
-        "generated_by": "gemini",
-        "language": lang_code,
-        "language_name": LANGUAGE_NAMES.get(lang_code, lang_code.upper()),
-        "location": assessment_payload.get("location"),
-        "risk_score": assessment_payload.get("risk_score"),
-        "risk_level": assessment_payload.get("risk_level"),
-        "dominant_factor": assessment_payload.get("dominant_factor"),
-        "alert_message": alert_text,
-        "safety_disclaimer": assessment_payload.get("safety_disclaimer"),
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    }
 
 
 @app.post("/api/risk")

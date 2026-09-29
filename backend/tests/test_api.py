@@ -283,28 +283,5 @@ def test_location_analyze_mode_b():
     # Crucial test: does NOT claim 0 risk or safe just because historical data is missing!
     assert data["risk_score"] > 0
     assert data["safety_disclaimer"] is not None
-    assert "explanation_source" in data
-    assert data["explanation_source"] in ["gemini", "rule_based_fallback"]
-
-def test_location_analyze_explanation_source():
-    """Verify explanation_source is labeled honestly as gemini or rule_based_fallback."""
-    res = client.get("/api/location/analyze?lat=11.5540&lon=76.0422")
-    assert res.status_code == 200
-    data = res.json()
-    assert "explanation_source" in data
-    assert data["explanation_source"] in ["gemini", "rule_based_fallback"]
-
-def test_alert_dispatch_endpoint():
-    """Verify alert dispatch endpoint structure and graceful error handling when API key is missing."""
-    res = client.get("/api/location/alert-dispatch?lat=11.5540&lon=76.0422&language=hi")
-    if res.status_code == 503:
-        data = res.json()
-        assert "Alert generation is temporarily unavailable" in str(data)
-    else:
-        assert res.status_code == 200
-        data = res.json()
-        assert data["generated_by"] == "gemini"
-        assert data["language"] == "hi"
-        assert len(data["alert_message"]) > 10
 
 
