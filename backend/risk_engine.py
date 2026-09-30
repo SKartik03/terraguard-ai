@@ -644,8 +644,16 @@ def call_gemini(prompt: str) -> str:
         from google import genai
         client = genai.Client(api_key=api_key.strip())
         
-        # Prefer fastest responsive flash models
-        models_to_try = ["gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.8-flash", "gemini-3.5-flash"]
+        # Verified against live Gemini API models.list() & docs on 2026-09-30.
+        # Primary: gemini-3.1-flash-lite (confirmed stable GA, optimal cost/latency for concise text).
+        # Fallbacks: gemini-3.6-flash, gemini-flash-latest (dynamic stable alias), gemini-3.8-flash.
+        # Re-check before major deployments — Google deprecates models on a rolling schedule.
+        models_to_try = [
+            "gemini-3.1-flash-lite",
+            "gemini-3.6-flash",
+            "gemini-flash-latest",
+            "gemini-3.8-flash"
+        ]
         for m in models_to_try:
             try:
                 response = client.models.generate_content(
