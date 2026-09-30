@@ -147,6 +147,8 @@ def get_health():
         db_ok = False
 
     ml_loaded = predictor.model is not None
+    gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
+    gemini_configured = bool(gemini_key.strip() and gemini_key.strip() not in ["", "your_gemini_api_key_here"])
 
     return {
         "status": "healthy" if db_ok else "degraded",
@@ -161,6 +163,10 @@ def get_health():
             "status": "active" if ml_loaded else "standby_rule_based_only",
             "model": "RandomForestClassifier (Layer 2)" if ml_loaded else "None",
             "metrics": predictor.metrics
+        },
+        "gemini": {
+            "configured": gemini_configured,
+            "status": "ready" if gemini_configured else "not_configured"
         },
         "version": "1.0-demo"
     }
