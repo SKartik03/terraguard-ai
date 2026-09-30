@@ -9,6 +9,11 @@ import time
 import urllib.request
 import urllib.error
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 BASE_URL = "http://127.0.0.1:8000"
 
 def get_json(url):
@@ -101,7 +106,7 @@ def run_step_4(hindi_data):
     print(f"Distinct regional languages: {distinct}")
     return ml_data
 
-def run_step_5_and_6():
+def run_step_5():
     print("\n" + "=" * 70)
     print("STEP 5: Fallback Behavior with Unset/Invalid GEMINI_API_KEY")
     print("=" * 70)
@@ -112,7 +117,12 @@ def run_step_5_and_6():
     print(f"Risk Score: {fallback_data.get('risk_score')}")
     print("\nFallback Explanation Text:")
     print(fallback_data.get("explanation"))
+    assert fallback_data.get("explanation_source") == "rule_based_fallback", "Expected rule_based_fallback"
+    assert fallback_data.get("explanation"), "Explanation should not be empty"
+    print("-> Verification PASSED: explanation_source equals 'rule_based_fallback', no crash or blank response.")
+    return fallback_data
 
+def run_step_6():
     print("\n" + "=" * 70)
     print("STEP 6: Alert Dispatch with Invalid Key -> Expect HTTP 503")
     print("=" * 70)
@@ -121,22 +131,84 @@ def run_step_5_and_6():
     print(f"HTTP Status: {code_alert} (Expected: 503)")
     print("Response Body:")
     print(json.dumps(err_data, indent=2, ensure_ascii=False) if isinstance(err_data, dict) else err_data)
+    assert code_alert == 503, f"Expected 503 but got {code_alert}"
+    print("-> Verification PASSED: Returned HTTP 503 without fake/templated alert message.")
+    return err_data
+
+def run_step_7():
+    print("\n" + "=" * 70)
+    print("STEP 7: Restore Valid GEMINI_API_KEY and Re-verify Step 1")
+    print("=" * 70)
+    url = f"{BASE_URL}/api/location/analyze?lat=11.685&lon=76.132&force_refresh=true"
+    code, data = get_json(url)
+    print(f"HTTP Status: {code}")
+    print(f"explanation_source: {data.get('explanation_source')}")
+    print(f"Risk Score: {data.get('risk_score')}")
+    print("\nRestored Live Explanation Text:")
+    print(data.get("explanation"))
+    assert data.get("explanation_source") == "gemini", "Expected gemini after key restoration"
+    print("-> Verification PASSED: Live Gemini successfully restored.")
+    return data
 
 if __name__ == "__main__":
+    from risk_engine import load_env_file
+    load_env_file()
+    key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+
     if len(sys.argv) > 1 and sys.argv[1] == "fallback_only":
-        run_step_5_and_6()
+        run_step_5()
+        run_step_6()
+    elif not key or key == "your_gemini_api_key_here":
+        print("GEMINI_API_KEY is currently NOT set.")
+        print("Running Step 5 & 6 (Fallback Verification)...")
+        run_step_5()
+        run_step_6()
     else:
-        print("Checking if GEMINI_API_KEY is available in environment or .env...")
-        from risk_engine import load_env_file
-        load_env_file()
-        key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        if not key or key == "your_gemini_api_key_here":
-            print("GEMINI_API_KEY is currently NOT set. Demonstrating Step 5 & 6 (Fallback)...")
-            run_step_5_and_6()
-        else:
-            print("GEMINI_API_KEY detected! Running full 7-step verification...")
-            wayanad = run_step_1()
-            shimla = run_step_2(wayanad)
-            hindi = run_step_3()
-            ml = run_step_4(hindi)
-            print("\nProceeding to Step 5 & 6 verification...")
+        print("Valid GEMINI_API_KEY detected! Executing complete 7-step verification...")
+        
+        # Step 1
+        wayanad = run_step_1()
+        
+        # Step 2
+        shimla = run_step_2(wayanad)
+        
+        # Step 3
+        hindi = run_step_3()
+        
+        # Step 4
+        ml = run_step_4(hindi)
+
+        # Prepare for Step 5 & 6 by temporarily pointing .env to invalid key
+        env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+        bak_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env.bak")
+        
+        saved_key = key
+        try:
+            if os.path.exists(env_path):
+                with open(env_path, "r", encoding="utf-8") as f:
+                    orig_content = f.read()
+                with open(bak_path, "w", encoding="utf-8") as f:
+                    f.write(orig_content)
+            
+            # Write invalid key
+            with open(env_path, "w", encoding="utf-8") as f:
+                f.write("GEMINI_API_KEY=invalid_key_for_testing_purposes\n")
+            
+            # Step 5 & 6
+            run_step_5()
+            run_step_6()
+            
+        finally:
+            # Restore valid key for Step 7
+            if os.path.exists(bak_path):
+                with open(bak_path, "r", encoding="utf-8") as f:
+                    restored_content = f.read()
+                with open(env_path, "w", encoding="utf-8") as f:
+                    f.write(restored_content)
+                os.remove(bak_path)
+            else:
+                with open(env_path, "w", encoding="utf-8") as f:
+                    f.write(f"GEMINI_API_KEY={saved_key}\n")
+            
+            # Step 7
+            run_step_7()

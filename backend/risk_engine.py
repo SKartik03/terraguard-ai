@@ -644,8 +644,8 @@ def call_gemini(prompt: str) -> str:
         from google import genai
         client = genai.Client(api_key=api_key.strip())
         
-        # Prefer gemini-2.5-flash, fallback to gemini-2.0-flash and gemini-1.5-flash
-        models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+        # Prefer fastest responsive flash models
+        models_to_try = ["gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.8-flash", "gemini-3.5-flash"]
         for m in models_to_try:
             try:
                 response = client.models.generate_content(
