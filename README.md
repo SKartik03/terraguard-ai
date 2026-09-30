@@ -187,6 +187,26 @@ Visit **`http://localhost:5173`** in your browser to explore the platform!
 
 ---
 
+## 🤖 Google Gemini API Integration
+
+TerraGuard AI integrates the official Google GenAI SDK (`google-genai`) for real-time risk narrative explanation and multilingual civil alert dispatch:
+
+| Feature | Endpoint / Mechanism | Description | Fallback Behavior |
+| :--- | :--- | :--- | :--- |
+| **Feature A: Explainable Risk Narrative** | `GET /api/location/analyze` | Generates a 3-5 sentence plain-language explanation strictly grounded in calculated geotechnical & atmospheric parameters. | Automatically falls back to deterministic rule-based explainability (`explanation_source: "rule_based_fallback"`). Never crashes. |
+| **Feature B: Multilingual Alert Dispatch** | `GET /api/location/alert-dispatch?lat={lat}&lon={lon}&language={lang}` | Synthesizes an emergency civil broadcast message in regional Indian languages (Hindi, Malayalam, Bengali, Tamil, Marathi, English) in native script. | Returns explicit HTTP 503 if Gemini key is missing without fabricating pseudo-translations. |
+
+### Environment Setup
+
+Copy `.env.example` to `.env` or set the variable in your deployment environment:
+```bash
+# Optional for deterministic baseline; Required for live Gemini explainability
+export GEMINI_API_KEY="your_api_key_from_google_ai_studio"
+```
+
+---
+
+
 ## 🧪 Automated Testing & Verification
 
 Run the comprehensive automated test suite:

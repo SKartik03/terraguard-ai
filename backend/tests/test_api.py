@@ -283,5 +283,50 @@ def test_location_analyze_mode_b():
     # Crucial test: does NOT claim 0 risk or safe just because historical data is missing!
     assert data["risk_score"] > 0
     assert data["safety_disclaimer"] is not None
+    assert "explanation_source" in data
+    assert data["explanation_source"] in ["gemini", "rule_based_fallback"]
+
+
+def test_alert_dispatch_without_api_key():
+    """Verify Feature B returns HTTP 503 when Gemini API key is missing or unavailable without faking text."""
+    # Ensure no API key in env during test
+    old_key = os.environ.get("GEMINI_API_KEY")
+    try:
+        if "GEMINI_API_KEY" in os.environ:
+            del os.environ["GEMINI_API_KEY"]
+        if "GOOGLE_API_KEY" in os.environ:
+            del os.environ["GOOGLE_API_KEY"]
+
+        response = client.get("/api/location/alert-dispatch?lat=11.5540&lon=76.0422&language=hi")
+        assert response.status_code == 503
+        data = response.json()
+        assert "detail" in data
+        assert data["detail"]["error"] == "Alert generation is temporarily unavailable"
+        assert data["detail"]["language_requested"] == "hi"
+    finally:
+        if old_key:
+            os.environ["GEMINI_API_KEY"] = old_key
+
+
+def test_alert_dispatch_mocked_gemini(monkeypatch):
+    """Verify Feature B handles valid Gemini generation and returns structured multilingual payload."""
+    from risk_engine import generate_gemini_alert_dispatch
+
+    mock_hindi_alert = "सावधानी सूचना: वायनाड क्षेत्र में अत्यधिक वर्षा के कारण भूस्खलन की मध्यम संभावना है। ढलानों के पास सतर्क रहें और स्थानीय आपदा प्रबंधन के निर्देशों का पालन करें।"
+    monkeypatch.setattr(
+        "main.generate_gemini_alert_dispatch",
+        lambda assessment_data, language: mock_hindi_alert
+    )
+
+    response = client.get("/api/location/alert-dispatch?lat=11.5540&lon=76.0422&language=hi")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "SUCCESS"
+    assert data["generated_by"] == "gemini"
+    assert data["language"] == "hi"
+    assert "Hindi" in data["language_name"]
+    assert data["alert_message"] == mock_hindi_alert
+    assert "safety_disclaimer" in data
+
 
 

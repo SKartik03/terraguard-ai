@@ -4,9 +4,12 @@ Implements Layer 1 (Rule-based weighted formula) and Layer 2 (Trained ML inferen
 Strictly deterministic: same inputs -> exact same output.
 """
 import os
+import logging
 import joblib
 import json
 import numpy as np
+
+logger = logging.getLogger("terraguard.risk_engine")
 
 # Mapping constants
 GEOLOGY_MAP = {
@@ -345,7 +348,9 @@ def calculate_historical_evidence_score(
 def assess_location_risk(
     factors_input: dict,
     historical_summary: dict,
-    window_hours: int = 24
+    window_hours: int = 24,
+    location_name: str = "Target Location",
+    coordinates: tuple = None
 ) -> dict:
     """
     Dynamic location-first risk evaluator.
@@ -530,14 +535,34 @@ def assess_location_risk(
     dominant_factor = factor_breakdown[dominant_key]["name"]
 
     # Explainable Result Text (strictly grounded in actual calculated factors)
-    explanation = generate_explainable_reasoning(
+    explanation_source = "rule_based_fallback"
+    explanation = None
+
+    # FEATURE A: Attempt Gemini-generated explainable risk narrative
+    gemini_narrative = generate_gemini_reasoning(
         assessment_mode=assessment_mode,
         risk_class=risk_class,
         final_score=final_score,
         dominant_factor=dominant_factor,
         available_factors=available_factors,
-        historical_summary=historical_summary
+        historical_summary=historical_summary,
+        location_name=location_name,
+        coordinates=coordinates
     )
+
+    if gemini_narrative:
+        explanation = gemini_narrative
+        explanation_source = "gemini"
+    else:
+        explanation = generate_rule_based_reasoning(
+            assessment_mode=assessment_mode,
+            risk_class=risk_class,
+            final_score=final_score,
+            dominant_factor=dominant_factor,
+            available_factors=available_factors,
+            historical_summary=historical_summary
+        )
+        explanation_source = "rule_based_fallback"
 
     total_factors_evaluated = 7 if has_history else 6
     coverage_note = f"Score based on {len(available_factors)} of {total_factors_evaluated} factors"
@@ -559,10 +584,10 @@ def assess_location_risk(
         "multiplier": multiplier,
         "final_risk_score": final_score,
         "final_risk_class": risk_class,
-        "final_risk_class": risk_class,
         "dominant_factor": dominant_factor,
         "factors": factor_breakdown,
         "explanation": explanation,
+        "explanation_source": explanation_source,
         "safety_disclaimer": (
             "Safety Notice: TerraGuard AI is a prototype data-analysis and risk-assessment platform. "
             "Its results are not an official disaster warning or emergency notification. TerraGuard AI cannot guarantee "
@@ -581,7 +606,91 @@ LOCATION_BASE_WEIGHTS_NAMES = {
     "land_cover": "Land Cover Classification"
 }
 
-def generate_explainable_reasoning(
+def call_gemini(prompt: str) -> str:
+    """
+    Safely executes a content generation call via Google Gemini SDK.
+    Reads GEMINI_API_KEY from environment. Returns generated text or None.
+    Never crashes, never hangs, strictly non-blocking fallback on any error.
+    """
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not api_key or api_key.strip() in ["", "your_gemini_api_key_here"]:
+        return None
+
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key.strip())
+        
+        # Prefer gemini-2.5-flash, fallback to gemini-1.5-flash
+        models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash"]
+        for m in models_to_try:
+            try:
+                response = client.models.generate_content(
+                    model=m,
+                    contents=prompt
+                )
+                if response and response.text:
+                    return response.text.strip()
+            except Exception as model_err:
+                logger.warning(f"Gemini model {m} failed: {model_err}")
+                continue
+    except Exception as e:
+        logger.warning(f"Google GenAI client initialization failed: {e}")
+    return None
+
+def generate_gemini_reasoning(
+    assessment_mode: str,
+    risk_class: str,
+    final_score: float,
+    dominant_factor: str,
+    available_factors: dict,
+    historical_summary: dict,
+    location_name: str = "Target Location",
+    coordinates: tuple = None
+) -> str:
+    """
+    FEATURE A: Gemini-Generated Explainable Risk Narrative.
+    Prompts Gemini with ONLY pre-computed deterministic & ML values.
+    Gemini does NOT invent numbers; it provides a clear, plain-language narrative.
+    Returns generated string, or None if Gemini is unavailable / fails.
+    """
+    lat_str = f"{coordinates[0]:.4f}°N" if coordinates and len(coordinates) >= 2 else "N/A"
+    lon_str = f"{coordinates[1]:.4f}°E" if coordinates and len(coordinates) >= 2 else "N/A"
+    mode_label = "Mode A (Historical Landslide Evidence + Current Environmental Conditions)" if assessment_mode == "historical_plus_current" else "Mode B (Current Environmental Conditions Only - No Historical Records Found)"
+
+    factors_lines = []
+    for k, v in available_factors.items():
+        factors_lines.append(f"  - {v['name']}: {v['raw_value']} (Normalized hazard influence: {v['normalized']}, base weight: {round(v['base_weight']*100, 1)}%)")
+    factors_summary = "\n".join(factors_lines)
+
+    if assessment_mode == "historical_plus_current":
+        history_desc = f"{historical_summary.get('events_found', 0)} recorded historical landslides within {historical_summary.get('search_radius_km', 25)} km radius (nearest recorded event: {historical_summary.get('nearest_event_distance_km', 'N/A')} km)."
+    else:
+        history_desc = f"No historical landslide events found within {historical_summary.get('search_radius_km', 25)} km in the catalog. Note: Absence of cataloged history does not guarantee zero risk."
+
+    prompt = f"""You are the explainability engine for TerraGuard AI, an Indian geotechnical landslide risk assessment platform.
+Explain why the following location received its computed risk assessment score to a community resident or local planner in plain, clear, non-technical language.
+
+COMPUTED ASSESSMENT DATA (Strictly use ONLY these facts and numbers. Do NOT invent, assume, or modify any numeric values):
+- Target Location: {location_name} (Coordinates: {lat_str}, {lon_str})
+- Computed Final Risk Score: {final_score}/100
+- Computed Risk Classification: {risk_class}
+- Assessment Mode: {mode_label}
+- Dominant Contributing Hazard Factor: {dominant_factor}
+- Evaluated Environmental & Geographic Factors:
+{factors_summary}
+- Historical Evidence Status:
+  {history_desc}
+
+INSTRUCTIONS:
+1. Write 3 to 5 clear, objective, plain-language sentences explaining why this specific score and risk classification were determined.
+2. Explicitly reference the key contributing factors provided above (such as rainfall volume, slope angle, geological conditions, and historical records).
+3. Do NOT invent any numbers, statistics, or facts not provided in the data above.
+4. Adhere to cautious geotechnical language: Never state that a landslide "will definitely happen" or that an area is "100% safe". Use cautious phrasing such as "indicates elevated susceptibility", "heightened risk under heavy rainfall", or "moderate susceptibility".
+5. Do NOT include greetings, preamble, markdown headings, or bullet points. Output only the explanatory paragraph.
+"""
+    return call_gemini(prompt)
+
+def generate_rule_based_reasoning(
     assessment_mode: str,
     risk_class: str,
     final_score: float,
@@ -589,7 +698,7 @@ def generate_explainable_reasoning(
     available_factors: dict,
     historical_summary: dict
 ) -> str:
-    """Generates explainable rationale based strictly on actual calculated inputs."""
+    """Generates explainable rationale based strictly on actual calculated inputs (Rule-Based Fallback)."""
     lines = []
 
     rf_raw = available_factors.get("rainfall", {}).get("raw_value", "unavailable")
@@ -635,4 +744,71 @@ def generate_explainable_reasoning(
         )
 
     return " ".join(lines)
+
+# Maintain backwards compatibility
+generate_explainable_reasoning = generate_rule_based_reasoning
+
+LANGUAGE_NAMES = {
+    "en": "English",
+    "hi": "Hindi (हिंदी)",
+    "ml": "Malayalam (മലയാളം)",
+    "bn": "Bengali (বাংলা)",
+    "ta": "Tamil (தமிழ்)",
+    "mr": "Marathi (मराठी)",
+    "te": "Telugu (తెలుగు)",
+    "kn": "Kannada (ಕನ್ನಡ)"
+}
+
+def generate_gemini_alert_dispatch(assessment_data: dict, language: str = "en") -> str:
+    """
+    FEATURE B: Gemini-Generated Multilingual Alert Dispatch.
+    Generates a concise, civil-alert-style message in the requested language
+    based strictly on the computed risk assessment for this location.
+    If Gemini API is not configured or fails, returns None.
+    """
+    lang_code = language.lower().strip()
+    target_language = LANGUAGE_NAMES.get(lang_code, "English")
+
+    loc = assessment_data.get("location", {})
+    loc_name = loc.get("name", "Target Location")
+    lat = loc.get("latitude", "N/A")
+    lon = loc.get("longitude", "N/A")
+    risk_score = assessment_data.get("risk_score", "N/A")
+    risk_level = assessment_data.get("risk_level", "MODERATE")
+    dominant_factor = assessment_data.get("dominant_factor", "Environmental conditions")
+
+    factors = assessment_data.get("factors", {})
+    key_factors = []
+    for k, v in factors.items():
+        if isinstance(v, dict) and v.get("normalized") is not None and v.get("hazard_level") in ["High", "Moderate"]:
+            key_factors.append(f"{v.get('name')}: {v.get('raw_value')}")
+    key_factors_text = ", ".join(key_factors) if key_factors else "Terrain and precipitation factors"
+
+    history = assessment_data.get("historical_evidence", {})
+    if history.get("records_available"):
+        history_text = f"{history.get('events_found')} nearby historical landslides on record"
+    else:
+        history_text = "No cataloged historical landslide records in immediate search radius"
+
+    prompt = f"""You are the multilingual emergency communication module of TerraGuard AI, a landslide risk platform in India.
+Generate a concise, civil-alert-style public safety dispatch in {target_language} based on the following computed risk assessment.
+
+ASSESSMENT CONTEXT:
+- Location: {loc_name} ({lat}°N, {lon}°E)
+- Assessed Risk Level: {risk_level}
+- Assessed Risk Score: {risk_score} / 100
+- Leading Hazard Factor: {dominant_factor}
+- Key Contributing Conditions: {key_factors_text}
+- Historical Context: {history_text}
+
+REQUIREMENTS:
+1. Language: Write ENTIRELY in {target_language} (using its native regional script, e.g. Devanagari script for Hindi, Malayalam script for Malayalam, Bengali script for Bengali, Tamil script for Tamil, Marathi script for Marathi).
+2. Format: Short, civil-broadcast style suitable for emergency SMS or community public address (2 to 4 sentences).
+3. Tone: Serious, factual, non-alarmist, and clear.
+4. Content: State the assessed risk level for {loc_name}, highlight the primary driver ({dominant_factor}), and advise standard precautionary monitoring (e.g. monitor slope drainage, exercise caution on steep slopes, follow official district alerts).
+5. Disclaimer: Conclude with a brief reminder that this is an AI advisory and residents should always heed local government and SDMA/NDMA directives.
+6. Output ONLY the translated message text. Do not include transliteration, English subtitles, notes, or explanations.
+"""
+    return call_gemini(prompt)
+
 

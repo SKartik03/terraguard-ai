@@ -106,6 +106,27 @@ def test_backend_endpoints():
     s_data = res.json()
     print(f"[PASS] GET /api/system-status -> API Latency: {s_data['api_latency_ms']}ms, Database: {s_data['database']['engine']}")
 
+    # 14. Feature A: Explainable Narrative & Source Labeling
+    assert "explanation_source" in mode_a
+    assert mode_a["explanation_source"] in ["gemini", "rule_based_fallback"]
+    print(f"[PASS] Feature A (Explainability) -> Source: '{mode_a['explanation_source']}', Explanation: \"{mode_a['explanation'][:65]}...\"")
+
+    # 15. Feature B: Multilingual Alert Dispatch Endpoint Verification
+    res_alert = requests.get(f"{BASE_URL}/api/location/alert-dispatch?lat=11.5540&lon=76.0422&language=hi")
+    if res_alert.status_code == 200:
+        a_data = res_alert.json()
+        assert a_data["status"] == "SUCCESS"
+        assert a_data["generated_by"] == "gemini"
+        assert a_data["language"] == "hi"
+        print(f"[PASS] Feature B (Alert Dispatch) -> Live Gemini Generation (HTTP 200), Language: {a_data['language_name']}, Message: \"{a_data['alert_message'][:60]}...\"")
+    elif res_alert.status_code == 503:
+        err_data = res_alert.json()
+        assert "detail" in err_data
+        assert err_data["detail"]["error"] == "Alert generation is temporarily unavailable"
+        print(f"[PASS] Feature B (Alert Dispatch) -> Honest Fallback (HTTP 503), '{err_data['detail']['error']}' (No fake text fabricated)")
+    else:
+        raise AssertionError(f"Unexpected status code from alert-dispatch: {res_alert.status_code}")
+
 def test_validation_errors():
     print_header("2. Input Validation & Error Handling Verification (Invalid Inputs)")
 
