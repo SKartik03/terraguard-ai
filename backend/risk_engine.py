@@ -606,12 +606,36 @@ LOCATION_BASE_WEIGHTS_NAMES = {
     "land_cover": "Land Cover Classification"
 }
 
+def load_env_file():
+    """Lightweight built-in .env parser that searches for .env in backend/ and project root."""
+    search_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"),
+    ]
+    for env_path in search_paths:
+        if os.path.isfile(env_path):
+            try:
+                with open(env_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k = k.strip()
+                            v = v.strip().strip("'\"")
+                            if k:
+                                os.environ[k] = v
+            except Exception:
+                pass
+
+load_env_file()
+
 def call_gemini(prompt: str) -> str:
     """
     Safely executes a content generation call via Google Gemini SDK.
-    Reads GEMINI_API_KEY from environment. Returns generated text or None.
+    Reads GEMINI_API_KEY from environment or .env file. Returns generated text or None.
     Never crashes, never hangs, strictly non-blocking fallback on any error.
     """
+    load_env_file()
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key or api_key.strip() in ["", "your_gemini_api_key_here"]:
         return None
@@ -620,8 +644,8 @@ def call_gemini(prompt: str) -> str:
         from google import genai
         client = genai.Client(api_key=api_key.strip())
         
-        # Prefer gemini-2.5-flash, fallback to gemini-1.5-flash
-        models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash"]
+        # Prefer gemini-2.5-flash, fallback to gemini-2.0-flash and gemini-1.5-flash
+        models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
         for m in models_to_try:
             try:
                 response = client.models.generate_content(

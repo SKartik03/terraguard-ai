@@ -518,7 +518,15 @@ def analyze_location(
     if not force_refresh and cache_key in ANALYSIS_CACHE:
         cached_entry = ANALYSIS_CACHE[cache_key]
         if now_ts - cached_entry["cached_at"] < 180.0:
-            return cached_entry["payload"]
+            cached_source = cached_entry["payload"].get("explanation_source")
+            has_gemini = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
+            # Invalidate cache if key state changed between fallback and live
+            if cached_source == "rule_based_fallback" and has_gemini:
+                pass
+            elif cached_source == "gemini" and not has_gemini:
+                pass
+            else:
+                return cached_entry["payload"]
 
     # 1. Reverse geocode location
     geo_res = reverse_geocode(lat=lat, lon=lon)
