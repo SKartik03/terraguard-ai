@@ -73,7 +73,7 @@ export default function App() {
   });
   const [processingLocationName, setProcessingLocationName] = useState("Wayanad Vythiri Ghats");
 
-  // Periodic health ping
+  // Periodic health ping (relaxed to 45s to avoid free-tier cloud rate limiting)
   useEffect(() => {
     const checkHealth = async () => {
       try {
@@ -85,7 +85,7 @@ export default function App() {
       }
     };
     checkHealth();
-    const interval = setInterval(checkHealth, 15000);
+    const interval = setInterval(checkHealth, 45000);
     return () => clearInterval(interval);
   }, []);
 

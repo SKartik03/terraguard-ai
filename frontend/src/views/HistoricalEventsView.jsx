@@ -37,14 +37,20 @@ export default function HistoricalEventsView() {
       if (landslideOnly) url += '&landslide_only=true';
 
       const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
       const data = await res.json();
-      setEvents(data.events || []);
+      if (Array.isArray(data.events)) {
+        setEvents(data.events);
+      }
       if (data.dataset_coverage) {
         setDatasetCoverage(data.dataset_coverage);
       }
     } catch (err) {
       console.warn("Using offline events fallback:", err);
-      setEvents([]);
+      // Retain previously loaded events if a temporary network hiccup occurs
+      setEvents(prev => (prev && prev.length > 0 ? prev : []));
     } finally {
       setLoading(false);
     }
@@ -54,10 +60,10 @@ export default function HistoricalEventsView() {
     fetchEvents();
     fetchSchedulerStatus();
 
-    // Poll scheduler countdown every 10s
+    // Poll scheduler countdown every 60s (matches background cadence without overloading free-tier rate limits)
     const timer = setInterval(() => {
       fetchSchedulerStatus();
-    }, 10000);
+    }, 60000);
     return () => clearInterval(timer);
   }, [severityFilter, landslideOnly]);
 

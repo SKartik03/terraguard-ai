@@ -138,14 +138,21 @@ export default function RiskResultView({
       const res = await fetch(`/api/location/alert-dispatch?lat=${loc.latitude}&lon=${loc.longitude}&language=${selectedLanguage}`);
       const data = await res.json();
       if (!res.ok) {
-        setAlertError(data.detail?.message || data.detail?.error || data.error || 'Failed to generate alert message with Gemini.');
+        let msg = data?.detail?.message || data?.detail?.error || data?.error;
+        if (!msg || msg.includes('Too Many Requests')) {
+          msg = 'Cloud backend is temporarily handling high traffic (HTTP 429). Please wait 3 seconds and try again.';
+        }
+        setAlertError(msg);
         setAlertData(null);
       } else {
         setAlertData(data);
         setAlertError(null);
       }
     } catch (err) {
-      setAlertError('Network error connecting to TerraGuard backend server: ' + err.message);
+      const msg = err.message.includes('Too Many Requests')
+        ? 'Cloud backend is temporarily handling high traffic (HTTP 429). Please wait a few seconds and try again.'
+        : 'Network error connecting to TerraGuard backend server: ' + err.message;
+      setAlertError(msg);
       setAlertData(null);
     } finally {
       setAlertLoading(false);
